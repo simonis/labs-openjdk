@@ -36,6 +36,7 @@ public:
   enum Type {
     _alloc_shared,      // Allocate common, outside of TLAB
     _alloc_shared_gc,   // Allocate common, outside of GCLAB/PLAB
+    _alloc_cds,         // Allocate for CDS
     _alloc_tlab,        // Allocate TLAB
     _alloc_gclab,       // Allocate GCLAB
     _alloc_plab,        // Allocate PLAB
@@ -48,6 +49,8 @@ public:
         return "Shared";
       case _alloc_shared_gc:
         return "Shared GC";
+      case _alloc_cds:
+        return "CDS";
       case _alloc_tlab:
         return "TLAB";
       case _alloc_gclab:
@@ -123,6 +126,10 @@ public:
     return ShenandoahAllocRequest(0, requested_size, _alloc_shared, ShenandoahAffiliation::YOUNG_GENERATION);
   }
 
+  static inline ShenandoahAllocRequest for_cds(size_t requested_size) {
+    return ShenandoahAllocRequest(0, requested_size, _alloc_cds, ShenandoahAffiliation::YOUNG_GENERATION);
+  }
+
   inline size_t size() const {
     return _requested_size;
   }
@@ -165,6 +172,7 @@ public:
     switch (_alloc_type) {
       case _alloc_tlab:
       case _alloc_shared:
+      case _alloc_cds:
         return true;
       case _alloc_gclab:
       case _alloc_plab:
@@ -180,6 +188,7 @@ public:
     switch (_alloc_type) {
       case _alloc_tlab:
       case _alloc_shared:
+      case _alloc_cds:
         return false;
       case _alloc_gclab:
       case _alloc_plab:
@@ -199,6 +208,7 @@ public:
         return true;
       case _alloc_shared:
       case _alloc_shared_gc:
+      case _alloc_cds:
         return false;
       default:
         ShouldNotReachHere();

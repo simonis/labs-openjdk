@@ -174,7 +174,7 @@
   product(bool, UseZGC, false,                                              \
           "Use the Z garbage collector")                                    \
                                                                             \
-  product(bool, UseShenandoahGC, false,                                     \
+  product(bool, UseShenandoahGC, true,                                     \
           "Use the Shenandoah garbage collector")                           \
                                                                             \
   /* notice: the max range value here is INT_MAX not UINT_MAX  */           \

@@ -27,4 +27,21 @@
 
 #include "memory/padded.hpp"
 
+namespace svm_gc {
+
+// 64 bytes is enough to cover all existing architectures. If we have some
+// other platforms, we would need to provide the architecture-specific
+// versions here. Shared code provides DEFAULT_CACHE_LINE_SIZE, which is
+// inconveniently large by default.
+
+#define SHENANDOAH_CACHE_LINE_SIZE 64
+
+#define shenandoah_padding(id) \
+  DEFINE_PAD_MINUS_SIZE(id, SHENANDOAH_CACHE_LINE_SIZE, 0)
+
+#define shenandoah_padding_minus_size(id, size) \
+  DEFINE_PAD_MINUS_SIZE(id, SHENANDOAH_CACHE_LINE_SIZE, size)
+
+} // namespace svm_gc
+
 #endif // SHARE_GC_SHENANDOAH_SHENANDOAHPADDING_HPP

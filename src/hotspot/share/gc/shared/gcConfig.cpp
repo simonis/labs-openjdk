@@ -194,6 +194,8 @@ void GCConfig::initialize() {
 #ifdef SVM
 #if INCLUDE_G1GC
   _arguments = &g1Arguments;
+#elif INCLUDE_SHENANDOAHGC
+  _arguments = &shenandoahArguments;
 #else
   Unimplemented();
 #endif // INCLUDE_G1GC

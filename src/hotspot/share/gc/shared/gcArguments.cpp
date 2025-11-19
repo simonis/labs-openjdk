@@ -70,7 +70,7 @@ void GCArguments::initialize_heap_sizes() {
 }
 
 size_t GCArguments::compute_heap_alignment() {
-#ifdef SVM
+#if INCLUDE_G1GC
   ShouldNotReachHere();
   return 0;
 #else
@@ -82,14 +82,17 @@ size_t GCArguments::compute_heap_alignment() {
 
   size_t alignment = CardTable::ct_max_alignment_constraint();
 
+#ifndef SVM
+  // See: [Native Image] -XX:+UseLargePages (https://github.com/oracle/graal/issues/12462)
   if (UseLargePages) {
       // In presence of large pages we have to make sure that our
       // alignment is large page aware.
       alignment = lcm(os::large_page_size(), alignment);
   }
+#endif
 
   return alignment;
-#endif // SVM
+#endif // INCLUDE_G1GC
 }
 
 #ifdef ASSERT

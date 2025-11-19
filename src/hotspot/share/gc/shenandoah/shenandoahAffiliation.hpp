@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
+ * Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,9 +22,43 @@
  *
  */
 
-#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHARGUMENTS_HPP
-#define SHARE_GC_SHENANDOAH_SHENANDOAHARGUMENTS_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHAFFILIATION_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHAFFILIATION_HPP
 
-#include "gc/shared/gcArguments.hpp"
+namespace svm_gc {
 
-#endif // SHARE_GC_SHENANDOAH_SHENANDOAHARGUMENTS_HPP
+enum ShenandoahAffiliation {
+  FREE,
+  YOUNG_GENERATION,
+  OLD_GENERATION,
+};
+
+inline const char* shenandoah_affiliation_code(ShenandoahAffiliation type) {
+  switch(type) {
+    case FREE:
+      return "F";
+    case YOUNG_GENERATION:
+      return "Y";
+    case OLD_GENERATION:
+      return "O";
+    default:
+      ShouldNotReachHere();
+  }
+}
+
+inline const char* shenandoah_affiliation_name(ShenandoahAffiliation type) {
+  switch (type) {
+    case FREE:
+      return "FREE";
+    case YOUNG_GENERATION:
+      return "YOUNG";
+    case OLD_GENERATION:
+      return "OLD";
+    default:
+      ShouldNotReachHere();
+  }
+}
+
+} // namespace svm_gc
+
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHAFFILIATION_HPP

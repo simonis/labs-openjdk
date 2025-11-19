@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2013, 2019, Red Hat, Inc. All rights reserved.
- * Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
+ * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,17 +22,24 @@
  *
  */
 
-#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
-#define SHARE_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHARGUMENTS_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHARGUMENTS_HPP
 
-#include "gc/shared/gc_globals.hpp"
-#include "gc/shared/spaceDecorator.hpp"
-#include "gc/shenandoah/shenandoahAffiliation.hpp"
-#include "gc/shenandoah/shenandoahAgeCensus.hpp"
-#include "gc/shenandoah/shenandoahAllocRequest.hpp"
-#include "gc/shenandoah/shenandoahAsserts.hpp"
-#include "gc/shenandoah/shenandoahHeap.hpp"
-#include "gc/shenandoah/shenandoahPadding.hpp"
-#include "utilities/sizes.hpp"
+#include "gc/shared/gcArguments.hpp"
 
-#endif // SHARE_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
+namespace svm_gc {
+
+class CollectedHeap;
+
+class ShenandoahArguments : public GCArguments {
+private:
+  virtual void initialize_alignments();
+
+  virtual void initialize();
+  virtual size_t conservative_max_heap_alignment();
+  virtual CollectedHeap* create_heap();
+};
+
+}
+
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHARGUMENTS_HPP

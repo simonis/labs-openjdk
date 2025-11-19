@@ -63,8 +63,6 @@ size_t ShenandoahHeapRegion::RegionSizeWordsMask = 0;
 size_t ShenandoahHeapRegion::MaxTLABSizeBytes = 0;
 size_t ShenandoahHeapRegion::MaxTLABSizeWords = 0;
 
-#ifndef SVM
-
 ShenandoahHeapRegion::ShenandoahHeapRegion(HeapWord* start, size_t index, bool committed) :
   _index(index),
   _bottom(start),
@@ -94,6 +92,35 @@ ShenandoahHeapRegion::ShenandoahHeapRegion(HeapWord* start, size_t index, bool c
   }
   _recycling.unset();
 }
+
+#ifdef SVM
+ShenandoahHeapRegion::ShenandoahHeapRegion(HeapWord* start, size_t index, HeapWord* top) :
+  _index(index),
+  _bottom(start),
+  _end(start + RegionSizeWords),
+  _new_top(nullptr),
+  _empty_time(os::elapsedTime()),
+  _top_before_promoted(nullptr),
+  _top(top),
+  _tlab_allocs(0),
+  _gclab_allocs(0),
+  _plab_allocs(0),
+  _live_data(0),
+  _critical_pins(0),
+  _update_watermark(start),
+  _age(0),
+#ifdef SHENANDOAH_CENSUS_NOISE
+  _youth(0),
+#endif // SHENANDOAH_CENSUS_NOISE
+  _needs_bitmap_reset(false)
+{
+  _state = index < SVMGlobalData::_closed_image_heap_regions ? RegionState::_closed_image_heap : RegionState::_open_image_heap;
+
+  assert(Universe::on_page_boundary(_bottom) && Universe::on_page_boundary(_end),
+         "invalid space boundaries");
+  _recycling.unset();
+}
+#endif // SVM
 
 void ShenandoahHeapRegion::report_illegal_transition(const char *method) {
   stringStream ss;
@@ -662,17 +689,14 @@ size_t ShenandoahHeapRegion::block_size(const HeapWord* p) const {
     return pointer_delta(end(), (HeapWord*) p);
   }
 }
-#endif // !SVM
 
 size_t ShenandoahHeapRegion::setup_sizes(size_t max_heap_size) {
   // Absolute minimums we should not ever break.
   static const size_t MIN_REGION_SIZE = 256*K;
 
-#ifndef SVM
   if (FLAG_IS_DEFAULT(ShenandoahMinRegionSize)) {
     FLAG_SET_DEFAULT(ShenandoahMinRegionSize, MIN_REGION_SIZE);
   }
-#endif // !SVM
 
   // Generational Shenandoah needs this alignment for card tables.
   if (strcmp(ShenandoahGCMode, "generational") == 0) {
@@ -810,7 +834,6 @@ size_t ShenandoahHeapRegion::setup_sizes(size_t max_heap_size) {
   return max_heap_size;
 }
 
-#ifndef SVM
 void ShenandoahHeapRegion::do_commit() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (!heap->is_heap_region_special() && !os::commit_memory((char *) bottom(), RegionSizeBytes, false)) {
@@ -921,7 +944,5 @@ void ShenandoahHeapRegion::decrement_humongous_waste() const {
     heap->decrease_humongous_waste(generation, waste_bytes);
   }
 }
-
-#endif // !SVM
 
 } // namespace svm_gc

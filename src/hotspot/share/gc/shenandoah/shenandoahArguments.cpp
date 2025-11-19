@@ -41,7 +41,6 @@
 namespace svm_gc {
 
 void ShenandoahArguments::initialize() {
-#ifndef SVM
 #if !(defined AARCH64 || defined AMD64 || defined IA32 || defined PPC64 || defined RISCV64)
   vm_exit_during_initialization("Shenandoah GC is not supported on this platform.");
 #endif
@@ -61,6 +60,7 @@ void ShenandoahArguments::initialize() {
 
   FLAG_SET_DEFAULT(ShenandoahVerifyOptoBarriers,     false);
 #endif
+#ifndef SVM
   if (UseLargePages) {
     size_t large_page_size = os::large_page_size();
     if ((align_up(MaxHeapSize, large_page_size) / large_page_size) < ShenandoahHeapRegion::MIN_NUM_REGIONS) {
@@ -75,6 +75,7 @@ void ShenandoahArguments::initialize() {
   if (FLAG_IS_DEFAULT(UseNUMA)) {
     FLAG_SET_DEFAULT(UseNUMA, true);
   }
+#endif // !SVM
 
   // We use this as the time period for tracking minimum mutator utilization (MMU).
   // In generational mode, the MMU is used as a signal to adjust the size of the
@@ -137,11 +138,13 @@ void ShenandoahArguments::initialize() {
     FLAG_SET_DEFAULT(UseDynamicNumberOfGCThreads, false);
   }
 
+#ifndef SVM
   if (ShenandoahRegionSampling && FLAG_IS_DEFAULT(PerfDataMemorySize)) {
     // When sampling is enabled, max out the PerfData memory to get more
     // Shenandoah data in, including Matrix.
     FLAG_SET_DEFAULT(PerfDataMemorySize, 2048*K);
   }
+#endif // !SVM
 
 #ifdef COMPILER2
   // Shenandoah cares more about pause times, rather than raw throughput.
@@ -177,10 +180,12 @@ void ShenandoahArguments::initialize() {
     FLAG_SET_DEFAULT(ShenandoahUncommit, false);
   }
 
+#ifndef SVM
   // If class unloading is disabled, no unloading for concurrent cycles as well.
   if (!ClassUnloading) {
     FLAG_SET_DEFAULT(ClassUnloadingWithConcurrentMark, false);
   }
+#endif // !SVM
 
   // TLAB sizing policy makes resizing decisions before each GC cycle. It averages
   // historical data, assigning more recent data the weight according to TLABAllocationWeight.
@@ -197,7 +202,6 @@ void ShenandoahArguments::initialize() {
   }
 
   FullGCForwarding::initialize_flags(MaxHeapSize);
-#endif // !SVM
 }
 
 size_t ShenandoahArguments::conservative_max_heap_alignment() {
@@ -230,13 +234,13 @@ void ShenandoahArguments::initialize_alignments() {
 CollectedHeap* ShenandoahArguments::create_heap() {
 #ifndef SVM
   if (strcmp(ShenandoahGCMode, "generational") != 0) {
+#endif // !SVM
     // Not generational
     return new ShenandoahHeap(new ShenandoahCollectorPolicy());
+#ifndef SVM
   } else {
     return new ShenandoahGenerationalHeap(new ShenandoahCollectorPolicy());
   }
-#else
-  return nullptr;
 #endif // !SVM
 }
 

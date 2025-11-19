@@ -26,6 +26,10 @@
 #ifndef SVM_IMAGE_HEAP_HPP
 #define SVM_IMAGE_HEAP_HPP
 
+#if INCLUDE_SHENANDOAHGC
+#include "gc/shenandoah/shenandoahHeap.hpp"
+#include "gc/shenandoah/shenandoahHeapRegion.hpp"
+#endif // INCLUDE_SHENANDOAHGC
 #include "oops/oop.hpp"
 
 
@@ -38,11 +42,14 @@ public:
   }
 
   static inline bool is_in_image_heap(const HeapWord *heapWord) {
+#if INCLUDE_SHENANDOAHGC
+    ShenandoahHeap* heap = ShenandoahHeap::heap();
+    return heap->heap_region_containing(heapWord)->is_image_heap();
+#else
     Unimplemented();
-    return false;
+#endif // INCLUDE_SHENANDOAHGC
   }
 };
-
 
 } // namespace svm_gc
 

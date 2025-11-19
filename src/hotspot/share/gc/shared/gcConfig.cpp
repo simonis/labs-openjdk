@@ -222,6 +222,8 @@ bool GCConfig::is_gc_selected(CollectedHeap::Name name) {
 #ifdef SVM
 #if INCLUDE_G1GC
   return name == CollectedHeap::G1;
+#elif INCLUDE_SHENANDOAHGC
+  return name == CollectedHeap::Shenandoah;
 #else
   Unimplemented();
 #endif // INCLUDE_G1GC

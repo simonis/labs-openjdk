@@ -64,6 +64,9 @@ class markWord {
   static markWord from_pointer(void* ptr) {
     return markWord((uintptr_t)ptr);
   }
+  void* to_pointer() const {
+    return (void*)_value;
+  }
 
   bool operator==(const markWord& other) const {
     return _value == other._value;
@@ -134,6 +137,9 @@ class markWord {
   bool must_be_preserved() const {
     return !has_no_hash();
   }
+
+  // used to encode pointers during GC
+  markWord clear_lock_bits() const { SVM_ONLY(Unimplemented()) NOT_SVM((value() & ~lock_mask_in_place)); }
 
   // age operations
   markWord set_marked()   { return markWord((value() & ~mark_mask_in_place) | marked_value); }

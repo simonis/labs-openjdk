@@ -136,6 +136,7 @@ EXPORT_FOR_SVM void svm_gc_parse_options(int actual_native_image_version, int ar
   result->heap_address_space_size = MaxHeapSize + null_regions_size;
   result->physical_memory_size = FLAG_IS_DEFAULT(MaxRAM) ? os::physical_memory() : MaxRAM;
 
+  // Note: `MaxHeapSize` already accounts for `image_heap_size` (see `Arguments::increase_by_image_heap_size()`)
   guarantee(MaxHeapSize <= max_heap_address_space_size, "Java heap must fit into its address space");
   guarantee(ReservedAddressSpaceSize == 0 || MaxHeapSize <= ReservedAddressSpaceSize, "heap address space size is invalid");
 }
@@ -265,7 +266,8 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
     guarantee(SafepointSynchronize::get_safepoint_state() == SafepointSynchronize::not_at_safepoint, "must not be at a safepoint");
 
     // return a data structure with relevant offsets and constants (some of the values depend on the VM arguments)
-    shenandoah_init_state.card_table_address = (address)ci_card_table_address();
+    // TODO: 'card_table_offset' is not constant in Shenandoah (see JDK-8343468)
+    shenandoah_init_state.card_table_address = nullptr; //(address)ci_card_table_address();
     shenandoah_init_state.tlab_top_offset = in_bytes(Thread::tlab_top_offset());
     shenandoah_init_state.tlab_end_offset = in_bytes(Thread::tlab_end_offset());
     shenandoah_init_state.card_table_shift = CardTable::card_shift();
@@ -446,13 +448,13 @@ EXPORT_FOR_SVM oop svm_gc_allocate_pod(InstancePodKlass *k, int length) {
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
 EXPORT_FOR_SVM void svm_gc_pin_object(oop o) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  Unimplemented();
+  Universe::heap()->pin_object(nullptr, o);
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
 EXPORT_FOR_SVM void svm_gc_unpin_object(oop o) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  Unimplemented();
+  Universe::heap()->unpin_object(nullptr, o);
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.

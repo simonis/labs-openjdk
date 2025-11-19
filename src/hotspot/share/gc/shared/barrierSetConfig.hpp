@@ -32,7 +32,7 @@
   f(CardTableBarrierSet)                             \
   EPSILONGC_ONLY(f(EpsilonBarrierSet))               \
   G1GC_ONLY(f(G1BarrierSet))                         \
-  // TODO  SHENANDOAHGC_ONLY(f(ShenandoahBarrierSet))     \
+  SHENANDOAHGC_ONLY(f(ShenandoahBarrierSet))     \
   ZGC_ONLY(f(ZBarrierSet))
 
 #define FOR_EACH_ABSTRACT_BARRIER_SET_DO(f)          \

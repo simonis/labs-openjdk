@@ -266,7 +266,6 @@ void report_unimplemented(const char* file, int line) {
   report_vm_error(file, line, "Unimplemented()");
 }
 
-#ifndef SVM
 void report_untested(const char* file, int line, const char* message) {
 #ifndef PRODUCT
   warning("Untested: %s in %s: %d\n", message, file, line);
@@ -274,6 +273,7 @@ void report_untested(const char* file, int line, const char* message) {
 }
 
 void report_java_out_of_memory(const char* message) {
+#ifndef SVM
   static int out_of_memory_reported = 0;
 
   // A number of threads may attempt to report OutOfMemoryError at around the
@@ -301,8 +301,12 @@ void report_java_out_of_memory(const char* message) {
       os::_exit(3); // quick exit with no cleanup hooks run
     }
   }
+#else
+  Unimplemented();
+#endif // !SVM
 }
 
+#ifndef SVM
 // ------ helper functions for debugging go here ------------
 
 // All debug entries should be wrapped with a stack allocated

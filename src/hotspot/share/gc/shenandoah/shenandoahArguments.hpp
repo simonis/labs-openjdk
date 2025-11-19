@@ -40,6 +40,6 @@ private:
   virtual CollectedHeap* create_heap();
 };
 
-}
+} // namespace svm_gc
 
 #endif // SHARE_GC_SHENANDOAH_SHENANDOAHARGUMENTS_HPP

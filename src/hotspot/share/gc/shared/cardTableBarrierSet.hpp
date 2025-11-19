@@ -123,7 +123,7 @@ struct BarrierSet::GetName<CardTableBarrierSet> {
 
 template<>
 struct BarrierSet::GetType<BarrierSet::CardTableBarrierSet> {
-  typedef svm_gc::CardTableBarrierSet type;
+  typedef SVM_ONLY(svm_gc)::CardTableBarrierSet type;
 };
 
 

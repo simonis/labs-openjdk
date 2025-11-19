@@ -111,6 +111,28 @@ cd src/hotspot
 make -j16 build_debug_ur_so
 ```
 
+# Run
+
+In order to run Native Image with Shenandoah, you need to use the [simonis/GR-70306](https://github.com/simonis/graal/tree/simonis/GR-70306) Graal branch (which is based on the Graal PR [[GR-70306] Add infrastructure for Shenandoah](https://github.com/oracle/graal/pull/12365)) and do the following:
+
+- Clone [https://github.com/simonis/graal](https://github.com/simonis/graal) and checkout the [simonis/GR-70306](https://github.com/simonis/graal/tree/simonis/GR-70306) branch.
+- Change into the `substratevm` directory: `cd graal/substratevm`
+- Set `JAVA_HOME` to a compatible JDK ([labs-openjdk](https://github.com/graalvm/labs-openjdk) at tag [`25+37-jvmci-b06`](https://github.com/graalvm/labs-openjdk/tree/25%2B37-jvmci-b06) is known to work)
+- Build the project: `MX_ALT_OUTPUT_ROOT=<directory> mx --components=ni build`
+- Build a native executable for a simple `HelloWorld` program (with `BUILD_ROOT` from the previous build step):
+  ```
+  $MX_ALT_OUTPUT_ROOT/sdk/linux-amd64/GRAALVM_50BA5489A0_JAVA25/graalvm-50ba5489a0-java25-25.1.0-dev/bin/native-image-ea \
+    -esa -g -O0 -H:+SourceLevelDebug -H:-DeleteLocalSymbols -H:+IncludeDebugHelperMethods \
+	--native-compiler-options=-L$BUILD_ROOT/labsjdk-GR-70066-dbg \
+	--native-compiler-options=-Wl,--unresolved-symbols=ignore-all \
+	--gc=shenandoah -H:ShenandoahDebugLevel=debug --gc=shenandoah \
+	-o HelloWorld.exe HelloWorld
+  ```
+- Run the native executable with: ` LD_LIBRARY_PATH=$BUILD_ROOT ./HelloWorld.exe`
+- It should run until the first GC will be triggered and then abort with a call to `Unimplemented()`
+
+The `--native-compiler-options=-Wl,--unresolved-symbols=ignore-all` is only required during development while `libshenandoahgc-debug-ur.so` can still contain undefined symbols (i.e. `nm -C -u libshenandoahgc-debug-ur.so | grep svm_gc` is not empty).
+
 ## Importing the Shenandoah implementation
 
 This repository is based on `25+37-jvmci-b04` so we must be careful when importing the requierd Shenandoah files and their dependencies (which were removed by [Remove unnecessary files](https://github.com/graalvm/labs-openjdk/commit/35c85302eb6)) at that specific version such that things don't get out of sync. This can be achieved with `git checkout 25+37-jvmci-b04 -- <file>`, e.g.:

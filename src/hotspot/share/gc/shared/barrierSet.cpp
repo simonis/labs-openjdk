@@ -52,8 +52,8 @@ void BarrierSet::set_barrier_set(BarrierSet* barrier_set) {
 #ifndef SVM
   assert(!JavaThread::current()->on_thread_list(),
          "Main thread already on thread list.");
-#endif // !SVM
   _barrier_set->on_thread_create(Thread::current());
+#endif // !SVM
 }
 
 #ifndef SVM

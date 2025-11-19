@@ -124,6 +124,10 @@ private:
     _pinned,                  // region is pinned
     _pinned_cset,             // region is pinned and in cset (evac failure path)
     _trash,                   // region contains only trash
+#ifdef SVM
+    _closed_image_heap,       // region for the closed image heap part of a native image
+    _open_image_heap,         // region for the open image heap part of a native image
+#endif // !SVM
     _REGION_STATES_NUM        // last
   };
 
@@ -140,6 +144,10 @@ public:
       case _pinned:                  return "Pinned";
       case _pinned_cset:             return "Collection Set, Pinned";
       case _trash:                   return "Trash";
+#ifdef SVM
+      case _closed_image_heap:       return "Closed Image Heap";
+      case _open_image_heap:         return "Open Image Heap";
+#endif // !SVM
       default:
         ShouldNotReachHere();
         return "";
@@ -160,6 +168,10 @@ private:
       case _trash:                  return 7;
       case _pinned_cset:            return 8;
       case _pinned_humongous_start: return 9;
+#ifdef SVM
+      case _closed_image_heap:      return 10;
+      case _open_image_heap:        return 11;
+#endif // !SVM
       default:
         ShouldNotReachHere();
         return -1;
@@ -198,6 +210,10 @@ public:
   bool is_humongous_continuation() const { return state() == _humongous_cont; }
   bool is_regular_pinned()         const { return state() == _pinned; }
   bool is_trash()                  const { return state() == _trash; }
+#ifdef SVM
+  bool is_closed_image_heap()      const { return state() == _closed_image_heap; }
+  bool is_open_image_heap()        const { return state() == _open_image_heap; }
+#endif // !SVM
 
   // Derived state predicates (boolean combinations of individual states)
   bool static is_empty_state(RegionState state) { return state == _empty_committed || state == _empty_uncommitted; }
@@ -209,6 +225,9 @@ public:
   bool is_committed()              const { return !is_empty_uncommitted(); }
   bool is_cset()                   const { auto cur_state = state(); return cur_state == _cset || cur_state == _pinned_cset; }
   bool is_pinned()                 const { auto cur_state = state(); return cur_state == _pinned || cur_state == _pinned_cset || cur_state == _pinned_humongous_start; }
+#ifdef SVM
+  bool is_image_heap()             const { auto cur_state = state(); return cur_state == _closed_image_heap || cur_state == _open_image_heap; }
+#endif // !SVM
 
   inline bool is_young() const;
   inline bool is_old() const;
@@ -272,7 +291,9 @@ private:
 
 public:
   ShenandoahHeapRegion(HeapWord* start, size_t index, bool committed);
-
+#ifdef SVM
+  ShenandoahHeapRegion(HeapWord* start, size_t index, HeapWord* top);
+#endif // SVM
   static const size_t MIN_NUM_REGIONS = 10;
 
   // Return adjusted max heap size

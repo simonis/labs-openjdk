@@ -118,9 +118,13 @@ CPP_DEPENDENCIES=$(CPP_OBJECTS:.o=.d)
 ASM_SOURCES += $(shell find $(PROJECT_ROOT) ! -name "*_$(S_FILES_TO_EXCLUDE).S" -name "*.S")
 ASM_OBJECTS := $(ASM_SOURCES:$(PROJECT_ROOT)%.S=$(BUILD_DIR)/%.o)
 
+ifdef VSCODE
+include ide/vscode/hotspot/CreateVSCodeProject.gmk
+endif
+
 -include $(CPP_DEPENDENCIES)
 
-build: $(BUILD_DIR) $(TARGET_FILE)
+build: $(BUILD_DIR) $(TARGET_FILE) $(VSCODE)
 
 clean:
 	rm -rf $(BUILD_DIR)

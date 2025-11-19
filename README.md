@@ -95,6 +95,10 @@ The following build configurations are supported:
 - **Debug level**: `debug`, `fastdebug`, `notproduct`, `product`
 - **Reference size**: Compressed references (`cr`) or uncompressed references (`ur`)
 
+- **`BUILD_ROOT`**: Set alternative output root (defaults to `./`)
+- **`QUIETLY=`**: To get verbose build output
+- **`VSCODE=yes`**: To generate a VS Code project file (with ccls as indexer) in the output directory.
+
 **To build all configurations:**
 ```shell
 cd src/hotspot
@@ -107,3 +111,10 @@ cd src/hotspot
 make -j16 build_debug_ur_so
 ```
 
+## Importing the Shenandoah implementation
+
+This repository is based on `25+37-jvmci-b04` so we must be careful when importing the requierd Shenandoah files and their dependencies (which were removed by [Remove unnecessary files](https://github.com/graalvm/labs-openjdk/commit/35c85302eb6)) at that specific version such that things don't get out of sync. This can be achieved with `git checkout 25+37-jvmci-b04 -- <file>`, e.g.:
+
+```shell
+git checkout 25+37-jvmci-b04 -- src/hotspot/share/gc/shenandoah/shenandoahHeapRegion.hpp
+```

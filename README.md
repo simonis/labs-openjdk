@@ -128,8 +128,8 @@ In order to run Native Image with Shenandoah, you need to use the [simonis/GR-70
 	--gc=shenandoah -H:ShenandoahDebugLevel=debug --gc=shenandoah \
 	-o HelloWorld.exe HelloWorld
   ```
-- Run the native executable with: ` LD_LIBRARY_PATH=$BUILD_ROOT ./HelloWorld.exe`
-- It should run until the first GC will be triggered and then abort with a call to `Unimplemented()`
+- Run the native executable with: ` LD_LIBRARY_PATH=$BUILD_ROOT ./HelloWorld.exe -XX:ShenandoahGCMode=passive`
+- It should run for a while until it crashes with a `SIGSEGV` or an unexpected Java exception. The root cause of the crash is usually some illegal data in the Java heap where oops contain `0xbaadbabe` data.
 
 The `--native-compiler-options=-Wl,--unresolved-symbols=ignore-all` is only required during development while `libshenandoahgc-debug-ur.so` can still contain undefined symbols (i.e. `nm -C -u libshenandoahgc-debug-ur.so | grep svm_gc` is not empty).
 

@@ -150,7 +150,7 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
     objArrayOop klasses_assumed_reachable_for_code_unloading, bool perf_data_support, bool use_string_inlining, bool closed_type_world,
     bool use_interface_hashing, int interface_hashing_max_id, int dynamic_hub_hashing_interface_mask, int dynamic_hub_hashing_shift_offset,
     char *offsets, int offsets_length,
-    queueVmOperationFunc collect_for_allocation_op, queueVmOperationFunc collect_full_op,
+    queueVmOperationFunc collect_for_allocation_op, queueVmOperationFunc collect_full_op, queueVmOperationFunc collect_degenerated_op,
     vmOperationStatusFunc wait_for_vm_operation_execution_status, vmOperationStatusFunc update_vm_operation_execution_status,
     vmOperationDataFunc is_vm_operation_finished, fetchThreadStackFramesFunc fetch_thread_stack_frames, freeThreadStackFramesFunc free_thread_stack_frames,
     fetchContinuationStackFramesFunc fetch_continuation_stack_frames, freeContinuationStackFramesFunc free_continuation_stack_frames,
@@ -187,6 +187,7 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   guarantee(offsets_length > 0, "must be");
   guarantee(collect_for_allocation_op != nullptr, "must be");
   guarantee(collect_full_op != nullptr, "must be");
+  guarantee(collect_degenerated_op != nullptr, "must be");
   guarantee(wait_for_vm_operation_execution_status != nullptr, "must be");
   guarantee(update_vm_operation_execution_status != nullptr, "must be");
   guarantee(is_vm_operation_finished != nullptr, "must be");
@@ -218,6 +219,7 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   SVMGlobalData::_interface_hashing_max_id = interface_hashing_max_id;
   SVMGlobalData::_collect_for_allocation_op = collect_for_allocation_op;
   SVMGlobalData::_collect_full_op = collect_full_op;
+  SVMGlobalData::_collect_degenerated_op = collect_degenerated_op;
   SVMGlobalData::_wait_for_vm_operation_execution_status = wait_for_vm_operation_execution_status;
   SVMGlobalData::_update_vm_operation_execution_status = update_vm_operation_execution_status;
   SVMGlobalData::_is_vm_operation_finished = is_vm_operation_finished;
@@ -363,10 +365,14 @@ EXPORT_FOR_SVM void svm_gc_end_safepoint() {
 
 // TO_VM - Called by any Java thread. Uses oops. May block. May cause a safepoint.
 EXPORT_FOR_SVM void svm_gc_collect(int cause) {
-  assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
+  IsolateThread* thread = IsolateThread::current();
+  assert(thread->has_status_vm(), "unexpected thread state");
   if (!DisableExplicitGC) {
-    Unimplemented();
-  }
+    SVMGlobalData::_transition_vm_to_native(thread);
+    Universe::heap()->collect(GCCause::_java_lang_system_gc);
+    SVMGlobalData::_slow_transition_native_to_vm(thread);
+    assert(thread->has_status_vm(), "must be");
+   }
 }
 
 // TO_NATIVE - Only called from the VM thread.
@@ -393,9 +399,12 @@ EXPORT_FOR_SVM void svm_gc_execute_vm_operation_epilogue(VM_OperationData *data)
 
 // TO_VM - May be called by any Java thread. Uses oops. May block. May cause a safepoint.
 EXPORT_FOR_SVM oop svm_gc_allocate_instance(InstanceKlass *k) {
-  assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
+  IsolateThread* thread = IsolateThread::current();
+  assert(thread->has_status_vm(), "unexpected thread state");
   assert(k->is_instance_klass(), "must be");
+  SVMGlobalData::_transition_vm_to_native(thread);
   oop result = Universe::heap()->obj_allocate(k, k->size_helper());
+  SVMGlobalData::_slow_transition_native_to_vm(thread);
   if (result != nullptr) {
     BarrierSet::barrier_set()->on_slowpath_allocation_exit(JavaThread::current(), result);
   }
@@ -404,14 +413,18 @@ EXPORT_FOR_SVM oop svm_gc_allocate_instance(InstanceKlass *k) {
 
 // TO_VM - May be called by any Java thread. Uses oops. May block. May cause a safepoint.
 EXPORT_FOR_SVM oop svm_gc_allocate_array(ArrayKlass *k, int length) {
-  assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
+  IsolateThread* thread = IsolateThread::current();
+  assert(thread->has_status_vm(), "unexpected thread state");
   assert(k->is_array_klass(), "must be");
   assert(length >= 0, "must be");
 
   oop result = nullptr;
   if (length >= 0 && length <= k->max_length()) {
     int size = k->object_size(length);
+    SVMGlobalData::_transition_vm_to_native(thread);
     result = Universe::heap()->array_allocate(k, size, length, true);
+    SVMGlobalData::_slow_transition_native_to_vm(thread);
+    assert(thread->has_status_vm(), "must be");
     if (result != nullptr) {
       BarrierSet::barrier_set()->on_slowpath_allocation_exit(JavaThread::current(), result);
     }

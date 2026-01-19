@@ -971,6 +971,15 @@ ATTRIBUTE_NO_ASAN static bool read_safely_from(const uintptr_t* p, uintptr_t* re
   (*result) = (uintptr_t)i;
   return true;
 }
+#else
+static bool read_safely_from(const uintptr_t* p, uintptr_t* result) {
+  // TODO: this is not safe at all!!!
+  // This is just a placeholder to make os::print_hex_dump() compile until we come up with something better.
+  (*result) = *p;
+  return true;
+}
+
+#endif // !SVM
 
 // Helper for os::print_hex_dump
 static void print_ascii_form(stringStream& ascii_form, uint64_t value, int unitsize) {
@@ -1094,6 +1103,7 @@ void os::print_hex_dump(outputStream* st, const_address start, const_address end
   }
 }
 
+#ifndef SVM
 void os::print_dhm(outputStream* st, const char* startStr, long sec) {
   long days    = sec/86400;
   long hours   = (sec/3600) - (days * 24);
@@ -1291,7 +1301,7 @@ bool os::is_readable_range(const void* from, const void* to) {
   }
   return true;
 }
-
+#endif // !SVM
 
 // moved from debug.cpp (used to be find()) but still called from there
 // The verbose parameter is only set by the debug code in one case
@@ -1303,12 +1313,14 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
     return;
   }
 
+#ifndef SVM
   // Check if addr points into a code blob.
   CodeBlob* b = CodeCache::find_blob(addr);
   if (b != nullptr) {
     b->dump_for_addr(addr, st, verbose);
     return;
   }
+#endif // !SVM
 
   // Check if addr points into Java heap.
   if (Universe::heap()->print_location(st, addr)) {
@@ -1317,8 +1329,9 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
 
 #if !INCLUDE_ASAN
 
-  bool accessible = is_readable_pointer(addr);
+  bool accessible = NOT_SVM(is_readable_pointer(addr)) SVM_ONLY(true);
 
+#ifndef SVM
   // Check if addr points into the narrow Klass protection zone
   if (UseCompressedClassPointers && CompressedKlassPointers::is_in_protection_zone(addr)) {
     st->print_cr(PTR_FORMAT " points into nKlass protection zone", p2i(addr));
@@ -1336,6 +1349,7 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
       return;
     }
   }
+#endif // !SVM
 
   // Check if addr belongs to a Java thread.
   for (JavaThreadIteratorWithHandle jtiwh; JavaThread *thread = jtiwh.next(); ) {
@@ -1348,6 +1362,7 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
       }
       return;
     }
+#ifndef SVM
     // If the addr is in the stack region for this thread then report that
     // and print thread info
     if (thread->is_in_full_stack(addr)) {
@@ -1356,8 +1371,10 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
       if (verbose) thread->print_on(st);
       return;
     }
+#endif // !SVM
   }
 
+#ifndef SVM
   // Check if in metaspace and print types that have vptrs
   if (Metaspace::initialized() && Metaspace::contains(addr)) {
     if (Klass::is_valid((Klass*)addr)) {
@@ -1401,6 +1418,7 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
   if (os::find(addr, st)) {
     return;
   }
+#endif // !SVM
 
   if (accessible) {
     st->print(INTPTR_FORMAT " points into unknown readable memory:", p2i(addr));
@@ -1420,6 +1438,7 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
 
 }
 
+#ifndef SVM
 static bool is_pointer_bad(intptr_t* ptr) {
   return !is_aligned(ptr, sizeof(uintptr_t)) || !os::is_readable_pointer(ptr);
 }

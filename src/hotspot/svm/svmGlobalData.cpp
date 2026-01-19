@@ -69,6 +69,7 @@ queueVmOperationFunc SVMGlobalData::_collect_for_allocation_op = nullptr;
 queueVmOperationFunc SVMGlobalData::_execute_pause_remark_op = nullptr;
 queueVmOperationFunc SVMGlobalData::_execute_pause_cleanup_op = nullptr;
 queueVmOperationFunc SVMGlobalData::_collect_full_op = nullptr;
+queueVmOperationFunc SVMGlobalData::_collect_degenerated_op = nullptr;
 queueVmOperationFunc SVMGlobalData::_verify_heap_op = nullptr;
 queueVmOperationFunc SVMGlobalData::_try_initiate_conc_mark_op = nullptr;
 vmOperationStatusFunc SVMGlobalData::_wait_for_vm_operation_execution_status = nullptr;

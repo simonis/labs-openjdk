@@ -46,7 +46,6 @@ namespace svm_gc {
 class GCTimer;
 class ShenandoahGeneration;
 
-#ifndef SVM
 #define SHENANDOAH_RETURN_EVENT_MESSAGE(generation_type, prefix, postfix) \
   switch (generation_type) {                                              \
     case NON_GEN:                                                         \
@@ -69,7 +68,7 @@ private:
   GCTimer*  const _timer;
   GCTracer* const _tracer;
 
-  TraceMemoryManagerStats _trace_cycle;
+  NOT_SVM(TraceMemoryManagerStats _trace_cycle;)
 public:
   ShenandoahGCSession(GCCause::Cause cause, ShenandoahGeneration* generation);
   ~ShenandoahGCSession();
@@ -155,12 +154,11 @@ private:
   const GCIdMark                _gc_id_mark;
   const SvcGCMarker             _svc_gc_mark;
   const IsSTWGCActiveMark       _is_gc_active_mark;
-  TraceMemoryManagerStats       _trace_pause;
+  NOT_SVM(TraceMemoryManagerStats       _trace_pause;)
 
 public:
   ShenandoahGCPauseMark(uint gc_id, const char* notification_action, SvcGCMarker::reason_type type);
 };
-#endif // !SVM
 
 class ShenandoahSafepoint : public AllStatic {
 public:
@@ -180,7 +178,6 @@ public:
     // so pretend this is a proper Shenandoah safepoint
     if (!thr->is_VM_thread()) return true;
 
-#ifndef SVM
     // Otherwise check we are at proper operation type
     VM_Operation* vm_op = VMThread::vm_operation();
     if (vm_op == nullptr) return false;
@@ -193,6 +190,7 @@ public:
            type == VM_Operation::VMOp_ShenandoahFinalRoots ||
            type == VM_Operation::VMOp_ShenandoahFullGC ||
            type == VM_Operation::VMOp_ShenandoahDegeneratedGC;
+#ifndef SVM
 #else
     Unimplemented();
     return false;
@@ -227,7 +225,6 @@ public:
   ~ShenandoahParallelWorkerSession();
 };
 
-#ifndef SVM
 class ShenandoahSuspendibleThreadSetJoiner {
 private:
   SuspendibleThreadSetJoiner _joiner;
@@ -265,7 +262,6 @@ public:
     _heap->allow_uncommit();
   }
 };
-#endif // !SVM
 
 } // namespace svm_gc
 

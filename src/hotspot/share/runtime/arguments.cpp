@@ -2219,7 +2219,12 @@ jint Arguments::parse_vm_init_args(
 
   // Apply all SVM-specific options.
   if (PrintGC || VerboseGC) {
-    LogConfiguration::configure_stdout(LogLevel::Info, !VerboseGC, LOG_TAGS(gc));
+    LogLevelType llt = LogLevel::from_string(VerboseGCLevel);
+    if (llt == LogLevelType::Invalid) {
+      log_warning(gc)("VerboseGCLevel: '%s' is unknown. Available levels are: off, trace, debug, info, warning, error.", VerboseGCLevel);
+      FLAG_SET_DEFAULT(VerboseGCLevel, "info");
+    }
+    LogConfiguration::configure_stdout(LogLevel::from_string(VerboseGCLevel), !VerboseGC, LOG_TAGS(gc));
   }
 
   if (VerifyHeap) {
@@ -2415,10 +2420,16 @@ jint Arguments::parse_each_vm_init_arg(char *args, bool hosted, JVMFlagOrigin or
     args += length + 1;
 
     uint64_t value = *((uint64_t*)args);
-    args += sizeof(uint64_t);
+    ccstr ccstr_value = args;
 
     JVMFlag* flag = JVMFlag::find_flag(name, hosted);
     guarantee(flag != nullptr, "unknown option");
+
+    if (flag->is_ccstr()) {
+      args += strlen(args) + 1;
+    } else {
+      args += sizeof(uint64_t);
+    }
 
     JVMFlag::Error result;
     if (flag->is_bool()) {
@@ -2447,6 +2458,9 @@ jint Arguments::parse_each_vm_init_arg(char *args, bool hosted, JVMFlagOrigin or
     } else if (flag->is_double()) {
       assert(sizeof(double) == sizeof(uint64_t), "must be");
       result = JVMFlagAccess::set_double(flag, (double*)&value, origin);
+    } else if (flag->is_ccstr()) {
+      assert(sizeof(double) == sizeof(uint64_t), "must be");
+      result = JVMFlagAccess::set_ccstr(flag, &ccstr_value, origin);
     } else {
       ShouldNotReachHere();
     }

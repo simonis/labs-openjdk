@@ -189,7 +189,7 @@ const int ObjectAlignmentInBytes = 8;
   product(bool, AlwaysSafeConstructors, false, EXPERIMENTAL,                \
           "Force safe construction, as if all fields are final.")           \
                                                                             \
-  product(bool, UnlockDiagnosticVMOptions, trueInDebug, DIAGNOSTIC,         \
+  ni_runtime(bool, UnlockDiagnosticVMOptions, trueInDebug, DIAGNOSTIC,      \
           "Enable normal processing of flags relating to field diagnostics")\
                                                                             \
   product(bool, UnlockExperimentalVMOptions, false, EXPERIMENTAL,           \

@@ -202,10 +202,8 @@ class Mutex : public CHeapObj<mtSynchronizer> {
   // that is guaranteed not to block while running inside the VM.
   void lock_without_safepoint_check();
   void lock_without_safepoint_check(Thread* self);
-#ifndef SVM
   // A thread should not call this if failure to acquire ownership will blocks its progress
   bool try_lock_without_rank_check();
-#endif // !SVM
 
   // Current owner - note not MT-safe. Can only be used to guarantee that
   // the current running thread owns the lock

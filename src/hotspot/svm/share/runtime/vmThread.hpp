@@ -38,8 +38,16 @@ namespace svm_gc {
 class VMThread {
  private:
   void evaluate_operation(VM_Operation* op);;
+  // VM_Operation support
+  static VM_Operation* _cur_vm_operation; // Current VM operation
 
  public:
+  // Returns the current vm operation if any.
+  static VM_Operation* vm_operation()             {
+    assert(Thread::current()->is_VM_thread(), "Must be");
+    return _cur_vm_operation;
+  }
+
   // Execution of vm operation
   static void execute(VM_Operation* op);
 };

@@ -29,6 +29,7 @@
 #include "oops/compressedKlass.hpp"
 #include "oops/oopsHierarchy.hpp"
 #include "runtime/globals.hpp"
+#include "utilities/ostream.hpp"
 
 #include <type_traits>
 
@@ -197,6 +198,21 @@ class markWord {
   inline oop forwardee() const {
     return cast_to_oop(decode_pointer());
   }
+
+  inline void print_on(outputStream* st) const {
+  if (is_marked()) {  // last bits = 11
+    st->print(" marked(" INTPTR_FORMAT ")", value());
+  } else {
+    st->print(" mark(");
+    if (has_no_hash()) {
+      st->print(" no_hash");
+    } else {
+      st->print(" hash=" INTPTR_FORMAT, hash());
+    }
+  }
+  st->print(" age=%d)", age());
+}
+
 };
 
 // Support atomic operations.

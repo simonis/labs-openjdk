@@ -54,8 +54,6 @@ const char* ShenandoahGC::degen_point_to_string(ShenandoahDegenPoint point) {
    }
 }
 
-#ifndef SVM
-
 class ShenandoahUpdateRootsTask : public WorkerTask {
 private:
   ShenandoahRootUpdater*  _root_updater;
@@ -110,7 +108,5 @@ void ShenandoahGC::update_roots(bool full_gc) {
   DerivedPointerTable::update_pointers();
 #endif
 }
-
-#endif // !SVM
 
 } // namespace svm_gc

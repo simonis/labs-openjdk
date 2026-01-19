@@ -141,6 +141,10 @@
           "Print more information about the heap "                          \
           "before and after each collection.")                              \
                                                                             \
+  ni_runtime(ccstr, VerboseGCLevel, "info",                                 \
+          "Log level for VerboseGC. One of: off, trace, debug, info, "      \
+          "warn, error.")                                                   \
+                                                                            \
   ni_runtime(size_t, ReservedAddressSpaceSize, 0,                           \
           "The number of bytes that should be reserved for "                \
           "the heap address space.")                                        \

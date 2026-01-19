@@ -33,6 +33,11 @@ namespace svm_gc {
 
 class ContinuationGCSupport : public AllStatic {
 public:
+  // Relativize the given oop if it is a stack chunk.
+  static bool relativize_stack_chunk(oop obj) {
+    // TODO: do we have to do anything here (see comment below)?
+    return false;
+  }
   // Relativize and transform to use a bitmap for future oop iteration for the
   // given oop if it is a stack chunk.
   static void transform_stack_chunk(oop obj) {

@@ -132,9 +132,9 @@ void ShenandoahBarrierSet::on_thread_attach(Thread *thread) {
   ShenandoahThreadLocalData::set_gc_state(thread, _heap->gc_state());
 
   if (thread->is_Java_thread()) {
-#ifndef SVM
     ShenandoahThreadLocalData::initialize_gclab(thread);
 
+#ifndef SVM
     BarrierSetNMethod* bs_nm = barrier_set_nmethod();
     thread->set_nmethod_disarmed_guard_value(bs_nm->disarmed_guard_value());
 

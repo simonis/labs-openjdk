@@ -204,6 +204,9 @@ class oopDesc {
   }
 
   // for code generation
+  static int mark_offset_in_bytes()      {  // Also used for prefetching in ShenandoahHeap::marked_object_iterate()
+    return (int)offset_of(oopDesc, _raw_mark_word);
+  }
   static int klass_offset_in_bytes()     {
     return offset_of(oopDesc, _klass);
   }

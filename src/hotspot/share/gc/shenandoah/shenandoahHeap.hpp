@@ -167,8 +167,8 @@ public:
   }
 
   ShenandoahGeneration* gc_generation() const {
-    // We don't want this field read by a mutator thread
-    assert(!Thread::current()->is_Java_thread(), "Not allowed");
+    // We don't want this field read by a mutator thread (in SubstrateVM, the VM thread is a Java thread)
+    assert(!Thread::current()->is_Java_thread() SVM_ONLY(|| Thread::current()->is_VM_thread()), "Not allowed");
     // value of _gc_generation field, see above
     return _gc_generation;
   }
@@ -204,15 +204,15 @@ public:
   virtual void print_init_logger() const;
   void initialize_serviceability() override;
 
-  void print_heap_on(outputStream* st)         const override SVM_ONLY( { Unimplemented(); } )
-  void print_gc_on(outputStream *st)           const override SVM_ONLY( { Unimplemented(); } )
-  void print_tracing_info()                    const override SVM_ONLY( { Unimplemented(); } )
+  void print_heap_on(outputStream* st)         const override;
+  void print_gc_on(outputStream *st)           const override;
+  void print_tracing_info()                    const override;
   void print_heap_regions_on(outputStream* st) const;
 
-  void stop() override SVM_ONLY( { Unimplemented(); } )
+  void stop() override;
 
-  void prepare_for_verify() override SVM_ONLY( { Unimplemented(); } )
-  void verify(VerifyOption vo) override SVM_ONLY( { Unimplemented(); } )
+  void prepare_for_verify() override;
+  void verify(VerifyOption vo) override;
 
 // WhiteBox testing support.
   bool supports_concurrent_gc_breakpoints() const override {
@@ -281,7 +281,7 @@ public:
   WorkerThreads* workers() const;
   WorkerThreads* safepoint_workers() override;
 
-  void gc_threads_do(ThreadClosure* tcl) const override SVM_ONLY( { Unimplemented(); } )
+  void gc_threads_do(ThreadClosure* tcl) const override;
 
 // ---------- Heap regions handling machinery
 //
@@ -304,8 +304,13 @@ public:
 
   inline ShenandoahHeapRegion* get_region(size_t region_idx) const;
 
-  void heap_region_iterate(ShenandoahHeapRegionClosure* blk) const;
+#ifdef SVM
+  void heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool include_image_heap = false) const;
+  void parallel_heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool include_image_heap = false) const;
+#else
+  void heap_region_iterate(ShenandoahHeapRegionClosure* blk SVM_ONLY(, bool include_image_heap =false)) const;
   void parallel_heap_region_iterate(ShenandoahHeapRegionClosure* blk) const;
+#endif // SVM
 
   inline ShenandoahMmuTracker* mmu_tracker() { return &_mmu_tracker; };
 
@@ -462,7 +467,7 @@ public:
   void cancel_concurrent_mark();
 
   // Returns true if and only if this call caused a gc to be cancelled.
-  bool cancel_gc(GCCause::Cause cause) SVM_ONLY({ Unimplemented(); });
+  bool cancel_gc(GCCause::Cause cause);
 
   // Returns true if the soft maximum heap has been changed using management APIs.
   bool check_soft_max_changed();
@@ -606,7 +611,7 @@ public:
   void parallel_cleaning(bool full_gc);
 
 private:
-  void stw_unload_classes(bool full_gc);
+  void stw_unload_classes(bool full_gc) SVM_ONLY ({ Unimplemented(); });
   void stw_process_weak_roots(bool full_gc);
   void stw_weak_refs(bool full_gc);
 
@@ -643,7 +648,7 @@ public:
 
   inline ShenandoahAffiliation region_affiliation(size_t index) const;
 
-  bool requires_barriers(stackChunkOop obj) const override SVM_ONLY( { Unimplemented(); } )
+  bool requires_barriers(stackChunkOop obj) const override;
 
   MemRegion reserved_region() const { return _reserved; }
   bool is_in_reserved(const void* addr) const { return _reserved.contains(addr); }
@@ -651,29 +656,27 @@ public:
 #ifndef SVM
   void collect_as_vm_thread(GCCause::Cause cause) override;
 #endif // !SVM
-  void collect(GCCause::Cause cause) override SVM_ONLY( { Unimplemented(); } )
-  void do_full_collection(bool clear_all_soft_refs) override SVM_ONLY( { Unimplemented(); } )
+  void collect(GCCause::Cause cause) override;
+  void do_full_collection(bool clear_all_soft_refs) override;
 
   // Used for parsing heap during error printing
   HeapWord* block_start(const void* addr) const;
   bool block_is_obj(const HeapWord* addr) const;
-#ifndef SVM
   bool print_location(outputStream* st, void* addr) const override;
-#endif // !SVM
 
   // Used for native heap walkers: heap dumpers, mostly
-  void object_iterate(ObjectClosure* cl) override SVM_ONLY( { Unimplemented(); } )
+  void object_iterate(ObjectClosure* cl) override;
   // Parallel heap iteration support
-  ParallelObjectIteratorImpl* parallel_object_iterator(uint workers) override SVM_ONLY( { Unimplemented(); } )
+  ParallelObjectIteratorImpl* parallel_object_iterator(uint workers) override;
 
   // Keep alive an object that was loaded with AS_NO_KEEPALIVE.
-  void keep_alive(oop obj) override SVM_ONLY( { Unimplemented(); } )
+  void keep_alive(oop obj) override;
 
 // ---------- Safepoint interface hooks
 //
 public:
-  void safepoint_synchronize_begin() override SVM_ONLY( { Unimplemented(); } )
-  void safepoint_synchronize_end() override SVM_ONLY( { Unimplemented(); } )
+  void safepoint_synchronize_begin() override;
+  void safepoint_synchronize_end() override;
 
 // ---------- Code roots handling hooks
 //
@@ -730,9 +733,9 @@ public:
   size_t tlab_capacity(Thread *thr) const override;
   size_t unsafe_max_tlab_alloc(Thread *thread) const override;
   size_t max_tlab_size() const override;
-  size_t tlab_used(Thread* ignored) const override SVM_ONLY( { Unimplemented(); } )
+  size_t tlab_used(Thread* ignored) const override;
 
-  void ensure_parsability(bool retire_labs) override SVM_ONLY( { Unimplemented(); } )
+  void ensure_parsability(bool retire_labs) override;
 
   void labs_make_parsable();
   void tlabs_retire(bool resize);

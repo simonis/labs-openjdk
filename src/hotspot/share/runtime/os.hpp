@@ -904,10 +904,10 @@ class os: AllStatic {
 
   // helper for output of seconds in days , hours and months
   static void print_dhm(outputStream* st, const char* startStr, long sec);
+#endif // !SVM
 
   static void print_location(outputStream* st, intptr_t x, bool verbose = false);
   static size_t lasterror(char *buf, size_t len);
-#endif // !SVM
   static int get_last_error();
 
   // Send JFR memory info event
@@ -948,6 +948,7 @@ class os: AllStatic {
 
   // return current frame. pc() and sp() are set to null on failure.
   static frame      current_frame();
+#endif // !SVM
 
   static void print_hex_dump(outputStream* st, const_address start, const_address end, int unitsize, bool print_ascii,
                              int bytes_per_line, const_address logical_start, const_address highlight_address = nullptr);
@@ -955,6 +956,7 @@ class os: AllStatic {
     print_hex_dump(st, start, end, unitsize, print_ascii, /*bytes_per_line=*/16, /*logical_start=*/start, highlight_address);
   }
 
+#ifndef SVM
   // returns a string to describe the exception/signal;
   // returns null if exception_code is not an OS exception/signal.
   static const char* exception_name(int exception_code, char* buf, size_t buflen);

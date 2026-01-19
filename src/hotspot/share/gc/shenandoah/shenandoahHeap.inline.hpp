@@ -109,7 +109,6 @@ inline void ShenandoahHeap::leave_evacuation(Thread* t) {
   _oom_evac_handler.leave_evacuation(t);
 }
 
-#ifndef SVM
 template <class T>
 inline void ShenandoahHeap::non_conc_update_with_forwarded(T* p) {
   T o = RawAccess<>::oop_load(p);
@@ -152,7 +151,6 @@ inline void ShenandoahHeap::conc_update_with_forwarded(T* p) {
     }
   }
 }
-#endif // !SVM
 
 // Atomic updates of heap location. This is only expected to work with updating the same
 // logical object with its forwardee. The reason why we need stronger-than-relaxed memory
@@ -301,7 +299,6 @@ inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size
   return allocate_from_gclab_slow(thread, size);
 }
 
-#ifndef SVM
 void ShenandoahHeap::increase_object_age(oop obj, uint additional_age) {
   // This operates on new copy of an object. This means that the object's mark-word
   // is thread-local and therefore safe to access. However, when the mark is
@@ -321,12 +318,12 @@ void ShenandoahHeap::increase_object_age(oop obj, uint additional_age) {
   // inflating, because inflation can not be interrupted by a safepoint,
   // and after a safepoint, a Java thread would first have to successfully
   // evacuate the object before it could inflate the monitor.
-  assert(!w.is_being_inflated() || LockingMode == LM_LIGHTWEIGHT, "must not inflate monitor before evacuation of object succeeds");
+  NOT_SVM(assert(!w.is_being_inflated() || LockingMode == LM_LIGHTWEIGHT, "must not inflate monitor before evacuation of object succeeds");)
   // It is possible that we have copied the object after another thread has
   // already successfully completed evacuation. While harmless (we would never
   // publish our copy), don't even attempt to modify the age when that
   // happens.
-  if (!w.has_displaced_mark_helper() && !w.is_marked()) {
+  if (NOT_SVM(!w.has_displaced_mark_helper()) SVM_ONLY(true) && !w.is_marked()) {
     w = w.set_age(MIN2(markWord::max_age, w.age() + additional_age));
     obj->set_mark(w);
   }
@@ -343,16 +340,17 @@ uint ShenandoahHeap::get_object_age(oop obj) {
     assert(w.age() <= markWord::max_age, "Impossible!");
     return w.age();
   }
+#ifndef SVM
   if (w.has_monitor()) {
     w = w.monitor()->header();
   } else if (w.is_being_inflated() || w.has_displaced_mark_helper()) {
     // Informs caller that we aren't able to determine the age
     return markWord::max_age + 1; // sentinel
   }
+#endif // !SVM
   assert(w.age() <= markWord::max_age, "Impossible!");
   return w.age();
 }
-#endif // !SVM
 
 inline bool ShenandoahHeap::is_in_active_generation(oop obj) const {
   if (!mode()->is_generational()) {
@@ -457,11 +455,9 @@ inline bool ShenandoahHeap::in_collection_set_loc(void* p) const {
   return collection_set()->is_in_loc(p);
 }
 
-#ifndef SVM
 inline bool ShenandoahHeap::is_idle() const {
   return _gc_state_changed ? _gc_state.is_clear() : ShenandoahThreadLocalData::gc_state(Thread::current()) == 0;
 }
-#endif // !SVM
 
 inline bool ShenandoahHeap::has_forwarded_objects() const {
   return is_gc_state(HAS_FORWARDED);
@@ -511,7 +507,6 @@ inline bool ShenandoahHeap::is_concurrent_strong_root_in_progress() const {
   return _concurrent_strong_root_in_progress.is_set();
 }
 
-#ifndef SVM
 template<class T>
 inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, T* cl) {
   marked_object_iterate(region, cl, region->top());
@@ -643,7 +638,6 @@ inline void ShenandoahHeap::marked_object_oop_iterate(ShenandoahHeapRegion* regi
     marked_object_iterate(region, &objs, top);
   }
 }
-#endif // !SVM
 
 inline ShenandoahHeapRegion* ShenandoahHeap::get_region(size_t region_idx) const {
   if (region_idx < _num_regions) {

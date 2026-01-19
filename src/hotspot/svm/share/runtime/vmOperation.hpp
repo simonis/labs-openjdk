@@ -36,6 +36,13 @@
 // Note: When new VM_XXX comes up, add 'XXX' to the template table.
 #define VM_OPS_DO(template)                       \
   template(Verify)                                \
+  template(ShenandoahFullGC)                      \
+  template(ShenandoahInitMark)                    \
+  template(ShenandoahFinalMarkStartEvac)          \
+  template(ShenandoahInitUpdateRefs)              \
+  template(ShenandoahFinalUpdateRefs)             \
+  template(ShenandoahFinalRoots)                  \
+  template(ShenandoahDegeneratedGC)               \
 
 #ifdef SVM_COMPRESSED_REFERENCES
 

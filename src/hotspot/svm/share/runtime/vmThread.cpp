@@ -54,6 +54,8 @@
 
 namespace svm_gc {
 
+VM_Operation* VMThread::_cur_vm_operation = nullptr;
+
 void VMThread::evaluate_operation(VM_Operation* op) {
   ResourceMark rm;
   op->evaluate();
@@ -110,9 +112,16 @@ void VMThread::execute(VM_Operation* op) {
   VM_OperationData *op_data = op->data();
   VM_OperationWrapperData wrapper_data;
   memset(&wrapper_data, 0, sizeof(VM_OperationWrapperData));
+  _cur_vm_operation = op;
   switch (op->type()) {
     case VM_Operation::VMOp_Verify:
       SVMGlobalData::_verify_heap_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahFullGC:
+      SVMGlobalData::_collect_full_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahDegeneratedGC:
+      SVMGlobalData::_collect_degenerated_op(heap_base, isolate_thread, op_data, &wrapper_data);
       break;
     default:
       ShouldNotReachHere();
@@ -159,6 +168,7 @@ void VMThread::execute(VM_Operation* op) {
       os::naked_yield();
     }
   }
+  _cur_vm_operation = nullptr;
 
   guarantee(isolate_thread == nullptr || isolate_thread->has_status_vm(), "isolate thread must be back in VM state");
 }

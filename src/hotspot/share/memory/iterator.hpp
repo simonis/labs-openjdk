@@ -213,15 +213,15 @@ class ClaimMetadataVisitingOopIterateClosure : public OopIterateClosure {
   virtual void do_method(Method* m);
   virtual void do_nmethod(nmethod* nm);
 };
+#endif // !SVM
 
 // The base class for all concurrent marking closures,
 // that participates in class unloading.
 // It's used to proxy through the metadata to the oops defined in them.
 class MetadataVisitingOopIterateClosure: public ClaimMetadataVisitingOopIterateClosure {
  public:
-  MetadataVisitingOopIterateClosure(ReferenceDiscoverer* rd = nullptr);
+  MetadataVisitingOopIterateClosure(ReferenceDiscoverer* rd = nullptr) SVM_ONLY({});
 };
-#endif // !SVM
 
 // ObjectClosure is used for iterating through an object space
 

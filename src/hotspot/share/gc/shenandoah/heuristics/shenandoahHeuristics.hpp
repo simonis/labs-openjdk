@@ -27,6 +27,7 @@
 #define SHARE_GC_SHENANDOAH_HEURISTICS_SHENANDOAHHEURISTICS_HPP
 
 #include "gc/shenandoah/heuristics/shenandoahSpaceInfo.hpp"
+#include "gc/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc/shenandoah/shenandoahSharedVariables.hpp"
 #include "memory/allocation.hpp"
 #include "runtime/globals_extension.hpp"
@@ -120,6 +121,9 @@ protected:
       _region_union._garbage = garbage;
 #ifdef ASSERT
       _union_tag = is_garbage;
+#ifdef SVM
+      assert(!region->is_image_heap(), "Shouldn't be");
+#endif // SVM
 #endif
     }
 
@@ -128,6 +132,9 @@ protected:
       _region_union._live_data = live;
 #ifdef ASSERT
       _union_tag = is_live_data;
+#ifdef SVM
+      assert(!region->is_image_heap(), "Shouldn't be");
+#endif // SVM
 #endif
     }
 

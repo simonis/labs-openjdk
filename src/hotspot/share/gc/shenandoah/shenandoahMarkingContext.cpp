@@ -72,6 +72,13 @@ bool ShenandoahMarkingContext::is_bitmap_range_within_region_clear(const HeapWor
 void ShenandoahMarkingContext::initialize_top_at_mark_start(ShenandoahHeapRegion* r) {
   size_t idx = r->index();
   HeapWord *bottom = r->bottom();
+#ifdef SVM
+  // In the image heap we already have pre-populated objects
+  if (r->is_image_heap()) {
+    HeapWord* top = r->top();
+    bottom = top;
+  }
+#endif // SVM
 
   _top_at_mark_starts_base[idx] = bottom;
   _top_bitmaps[idx] = bottom;
@@ -85,6 +92,10 @@ HeapWord* ShenandoahMarkingContext::top_bitmap(ShenandoahHeapRegion* r) {
 }
 
 void ShenandoahMarkingContext::clear_bitmap(ShenandoahHeapRegion* r) {
+#ifdef SVM
+  // Don't process bitmaps in the image heap
+  if (r->is_image_heap()) return;
+#endif // SVM
   HeapWord* bottom = r->bottom();
   HeapWord* top_bitmap = _top_bitmaps[r->index()];
 

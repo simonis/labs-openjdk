@@ -694,9 +694,12 @@ size_t ShenandoahHeapRegion::setup_sizes(size_t max_heap_size) {
   // Absolute minimums we should not ever break.
   static const size_t MIN_REGION_SIZE = 256*K;
 
+  // In SubstrateVM, the region size can only be set at native-image build-time.
+#ifndef SVM
   if (FLAG_IS_DEFAULT(ShenandoahMinRegionSize)) {
     FLAG_SET_DEFAULT(ShenandoahMinRegionSize, MIN_REGION_SIZE);
   }
+#endif // !SVM
 
   // Generational Shenandoah needs this alignment for card tables.
   if (strcmp(ShenandoahGCMode, "generational") == 0) {

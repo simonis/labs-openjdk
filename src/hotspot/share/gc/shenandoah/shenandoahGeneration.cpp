@@ -42,7 +42,6 @@
 
 namespace svm_gc {
 
-#ifndef SVM
 template <bool PREPARE_FOR_CURRENT_CYCLE, bool FULL_GC = false>
 class ShenandoahResetBitmapClosure final : public ShenandoahHeapRegionClosure {
 private:
@@ -55,6 +54,10 @@ public:
 
   void heap_region_do(ShenandoahHeapRegion* region) override {
     assert(!_heap->is_uncommit_in_progress(), "Cannot uncommit bitmaps while resetting them.");
+#ifdef SVM
+    // Don't process bitmaps in the image heap
+    if (region->is_image_heap()) return;
+#endif // SVM
     if (PREPARE_FOR_CURRENT_CYCLE) {
       if (region->need_bitmap_reset() && _heap->is_bitmap_slice_committed(region)) {
         _ctx->clear_bitmap(region);
@@ -130,7 +133,6 @@ public:
   size_t get_age0_population()  const { return _age0_pop; }
   size_t get_total_population() const { return _total_pop; }
 };
-#endif // !SVM
 
 void ShenandoahGeneration::confirm_heuristics_mode() {
   if (_heuristics->is_diagnostic() && !UnlockDiagnosticVMOptions) {
@@ -207,7 +209,6 @@ void ShenandoahGeneration::log_status(const char *msg) const {
 
 template <bool PREPARE_FOR_CURRENT_CYCLE, bool FULL_GC>
 void ShenandoahGeneration::reset_mark_bitmap() {
-#ifndef SVM
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   heap->assert_gc_workers(heap->workers()->active_workers());
 
@@ -215,8 +216,6 @@ void ShenandoahGeneration::reset_mark_bitmap() {
 
   ShenandoahResetBitmapClosure<PREPARE_FOR_CURRENT_CYCLE, FULL_GC> closure;
   parallel_heap_region_iterate_free(&closure);
-#endif // !SVM
-  Unimplemented();
 }
 // Explicit specializations
 template void ShenandoahGeneration::reset_mark_bitmap<true, false>();
@@ -667,8 +666,6 @@ size_t ShenandoahGeneration::select_aged_regions(size_t old_available) {
 }
 
 void ShenandoahGeneration::prepare_regions_and_collection_set(bool concurrent) {
-  Unimplemented();
-#ifndef SVM
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   ShenandoahCollectionSet* collection_set = heap->collection_set();
   bool is_generational = heap->mode()->is_generational();
@@ -768,7 +765,6 @@ void ShenandoahGeneration::prepare_regions_and_collection_set(bool concurrent) {
     // Free set construction uses reserve quantities, because they are known to be valid here
     heap->free_set()->finish_rebuild(young_cset_regions, old_cset_regions, num_old, true);
   }
-#endif // !SVM
 }
 
 bool ShenandoahGeneration::is_bitmap_clear() {
@@ -819,7 +815,7 @@ ShenandoahGeneration::ShenandoahGeneration(ShenandoahGenerationType type,
                                            size_t soft_max_capacity) :
   _type(type),
   _task_queues(new ShenandoahObjToScanQueueSet(max_workers)),
-  _ref_processor(SVM_ONLY(nullptr) NOT_SVM(ShenandoahReferenceProcessor(MAX2(max_workers, 1U)))),
+  _ref_processor(new ShenandoahReferenceProcessor(MAX2(max_workers, 1U))),
   _affiliated_region_count(0), _humongous_waste(0), _evacuation_reserve(0),
   _used(0), _bytes_allocated_since_gc_start(0),
   _max_capacity(max_capacity), _soft_max_capacity(soft_max_capacity),

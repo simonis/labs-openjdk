@@ -180,6 +180,7 @@ void ShenandoahEvacOOMHandler::handle_out_of_memory_during_evacuation() {
 
   wait_for_no_evac_threads();
 }
+#endif
 
 void ShenandoahEvacOOMHandler::clear() {
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "must be at a safepoint");
@@ -187,6 +188,5 @@ void ShenandoahEvacOOMHandler::clear() {
     _threads_in_evac[i].clear();
   }
 }
-#endif
 
 } // namespace svm_gc

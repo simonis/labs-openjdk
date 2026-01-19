@@ -224,6 +224,7 @@ jint ShenandoahHeap::initialize() {
   int image_heap_regions = SVMGlobalData::_closed_image_heap_regions + SVMGlobalData::_open_image_heap_regions;
   size_t image_heap_size = image_heap_regions * ShenandoahHeapRegion::region_size_bytes();
   ReservedHeapSpace heap_rs = ReservedHeapSpace(SVMIsolateData::_heap_base, max_byte_size + SVMGlobalData::_null_regions_size, SVMGlobalData::_heap_base_alignment, heap_page_size, SVMGlobalData::_null_regions_size);
+  MemRegion heap_region_without_image_heap((HeapWord*)(heap_rs.base() + image_heap_size), (heap_rs.size() - image_heap_size) / HeapWordSize);
 #endif // !SVM
   initialize_reserved_region(heap_rs);
   _heap_region = MemRegion((HeapWord*)heap_rs.base(), heap_rs.size() / HeapWordSize);
@@ -337,10 +338,8 @@ jint ShenandoahHeap::initialize() {
     }
     MemTracker::record_virtual_memory_tag(verify_bitmap, mtGC);
     MemRegion verify_bitmap_region = MemRegion((HeapWord *) verify_bitmap.base(), verify_bitmap.size() / HeapWordSize);
-    _verification_bit_map.initialize(_heap_region, verify_bitmap_region);
-#ifndef SVM
+    _verification_bit_map.initialize(NOT_SVM(_heap_region) SVM_ONLY(heap_region_without_image_heap), verify_bitmap_region);
     _verifier = new ShenandoahVerifier(this, &_verification_bit_map);
-#endif // !SVM
   }
 
   // Reserve aux bitmap for use in object_iterate(). We don't commit it here.
@@ -428,10 +427,14 @@ jint ShenandoahHeap::initialize() {
 #else
       ShenandoahHeapRegion* r;
       if (i < image_heap_regions) {
-        HeapWord* end = start + (r->region_size_words() - (SVMIsolateData::_image_heap_region_free_spaces->int_at(i) / HeapWordSize));
-        r = new (loc) ShenandoahHeapRegion(start, i, end);
+        HeapWord* top = start + (r->region_size_words() - (SVMIsolateData::_image_heap_region_free_spaces->int_at(i) / HeapWordSize));
+        r = new (loc) ShenandoahHeapRegion(start, i, top);
+        log_trace(gc)("Initializing region %d: (%s) [" PTR_FORMAT ", " PTR_FORMAT ", " PTR_FORMAT "]",
+                      (int)i, ShenandoahHeapRegion::region_state_to_string(r->state()), p2i(start), p2i(top), p2i(start + ShenandoahHeapRegion::region_size_words()));
       } else {
         r = new (loc) ShenandoahHeapRegion(start, i, is_committed);
+        log_trace(gc)("Initializing region %d: (%s) [" PTR_FORMAT ", " PTR_FORMAT ", " PTR_FORMAT "]",
+                      (int)i, ShenandoahHeapRegion::region_state_to_string(r->state()), p2i(start), p2i(start), p2i(start + ShenandoahHeapRegion::region_size_words()));
       }
 #endif // !SVM
       assert(is_aligned(r, SHENANDOAH_CACHE_LINE_SIZE), "Sanity");
@@ -490,7 +493,9 @@ jint ShenandoahHeap::initialize() {
 
 #ifndef SVM
   _monitoring_support = new ShenandoahMonitoringSupport(this);
+#endif
   _phase_timings = new ShenandoahPhaseTimings(max_workers());
+#ifndef SVM
   ShenandoahCodeRoots::initialize();
 
   if (ShenandoahPacing) {
@@ -514,15 +519,11 @@ jint ShenandoahHeap::initialize() {
 }
 
 void ShenandoahHeap::initialize_controller() {
-#ifndef SVM
   _control_thread = new ShenandoahControlThread();
-#endif // !SVM
 }
 
 void ShenandoahHeap::print_init_logger() const {
-#ifndef SVM
   ShenandoahInitLogger::print();
-#endif // !SVM
 }
 
 void ShenandoahHeap::initialize_mode() {
@@ -612,7 +613,6 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _cancelled_gc.set(GCCause::_no_gc);
 }
 
-#ifndef SVM
 
 #ifdef _MSC_VER
 #pragma warning( pop )
@@ -679,7 +679,6 @@ void ShenandoahHeap::print_heap_on(outputStream* st) const {
 void ShenandoahHeap::print_gc_on(outputStream* st) const {
   print_heap_regions_on(st);
 }
-#endif // !SVM
 
 class ShenandoahInitWorkerGCLABClosure : public ThreadClosure {
 public:
@@ -881,7 +880,6 @@ bool ShenandoahHeap::is_in(const void* p) const {
   return r->is_trash() && is_concurrent_weak_root_in_progress();
 }
 
-#ifndef SVM
 void ShenandoahHeap::notify_soft_max_changed() {
   if (_uncommit_thread != nullptr) {
     _uncommit_thread->notify_soft_max_changed();
@@ -911,7 +909,6 @@ bool ShenandoahHeap::check_soft_max_changed() {
   }
   return false;
 }
-#endif // !SVM
 
 void ShenandoahHeap::notify_heap_changed() {
   // Update monitoring counters when we took a new region. This amortizes the
@@ -922,15 +919,17 @@ void ShenandoahHeap::notify_heap_changed() {
   _heap_changed.try_set();
 }
 
-#ifndef SVM
 void ShenandoahHeap::set_forced_counters_update(bool value) {
+#ifndef SVM
   monitoring_support()->set_forced_counters_update(value);
+#endif // !SVM
 }
 
 void ShenandoahHeap::handle_force_counters_update() {
+#ifndef SVM
   monitoring_support()->handle_force_counters_update();
-}
 #endif // !SVM
+}
 
 HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) {
   // New object should fit the GCLAB size
@@ -1202,6 +1201,7 @@ MetaWord* ShenandoahHeap::satisfy_failed_metadata_allocation(ClassLoaderData* lo
   // Out of memory
   return nullptr;
 }
+#endif // !SVM
 
 class ShenandoahConcurrentEvacuateRegionObjectClosure : public ObjectClosure {
 private:
@@ -1255,9 +1255,11 @@ private:
       assert(r->has_live(), "Region %zu should have been reclaimed early", r->index());
       _sh->marked_object_iterate(r, &cl);
 
+#ifndef SVM
       if (ShenandoahPacing) {
         _sh->pacer()->report_evac(r->used() >> LogHeapWordSize);
       }
+#endif // !SVM
 
       if (_sh->check_cancelled_gc_and_yield(_concurrent)) {
         break;
@@ -1323,13 +1325,10 @@ private:
   ShenandoahRetireGCLABClosure _retire;
   ShenandoahGCStatePropagator _propagator;
 };
-#endif // !SVM
 
 void ShenandoahHeap::evacuate_collection_set(bool concurrent) {
-#ifndef SVM
   ShenandoahEvacuationTask task(this, _collection_set, concurrent);
   workers()->run_task(&task);
-#endif // !SVM
 }
 
 #ifndef SVM
@@ -1374,6 +1373,7 @@ class ShenandoahCompositeHandshakeClosure : public HandshakeClosure {
 };
 
 void ShenandoahHeap::concurrent_final_roots(HandshakeClosure* handshake_closure) {
+
   {
     assert(!is_evacuation_in_progress(), "Should not evacuate for abbreviated or old cycles");
     MutexLocker lock(Threads_lock);
@@ -1392,7 +1392,6 @@ void ShenandoahHeap::concurrent_final_roots(HandshakeClosure* handshake_closure)
 #endif // !SVM
 
 oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
-#ifndef SVM
   assert(thread == Thread::current(), "Expected thread parameter to be current thread.");
   if (ShenandoahThreadLocalData::is_oom_during_evac(thread)) {
     // This thread went through the OOM during evac protocol. It is safe to return
@@ -1407,12 +1406,8 @@ oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
 
   ShenandoahAffiliation target_gen = r->affiliation();
   return try_evacuate_object(p, thread, r, target_gen);
-#else
-  return nullptr;
-#endif // !SVM
 }
 
-#ifndef SVM
 oop ShenandoahHeap::try_evacuate_object(oop p, Thread* thread, ShenandoahHeapRegion* from_region,
                                                ShenandoahAffiliation target_gen) {
   assert(target_gen == YOUNG_GENERATION, "Only expect evacuations to young in this mode");
@@ -1510,7 +1505,6 @@ void ShenandoahHeap::print_heap_regions_on(outputStream* st) const {
     get_region(i)->print_on(st);
   }
 }
-#endif
 
 size_t ShenandoahHeap::trash_humongous_region_at(ShenandoahHeapRegion* start) const {
   assert(start->is_humongous_start(), "reclaim regions starting with the first one");
@@ -1531,7 +1525,6 @@ size_t ShenandoahHeap::trash_humongous_region_at(ShenandoahHeapRegion* start) co
   return index - start->index();
 }
 
-#ifndef SVM
 class ShenandoahCheckCleanGCLABClosure : public ThreadClosure {
 public:
   ShenandoahCheckCleanGCLABClosure() {}
@@ -1608,7 +1601,6 @@ void ShenandoahHeap::gclabs_retire(bool resize) {
     safepoint_workers()->threads_do(&cl);
   }
 }
-#endif // !SVM
 
 // Returns size in bytes
 size_t ShenandoahHeap::unsafe_max_tlab_alloc(Thread *thread) const {
@@ -1634,6 +1626,7 @@ void ShenandoahHeap::collect_as_vm_thread(GCCause::Cause cause) {
   assert(Thread::current()->is_VM_thread(), "Should be the VM thread");
   guarantee(cause == GCCause::_heap_dump || cause == GCCause::_heap_inspection, "Invalid cause");
 }
+#endif // !SVM
 
 void ShenandoahHeap::collect(GCCause::Cause cause) {
   control_thread()->request_gc(cause);
@@ -1755,13 +1748,11 @@ void ShenandoahHeap::verify(VerifyOption vo) {
     }
   }
 }
-#endif // !SVM
 
 size_t ShenandoahHeap::tlab_capacity(Thread *thr) const {
   return _free_set->capacity();
 }
 
-#ifndef SVM
 class ObjectIterateScanRootClosure : public BasicOopIterateClosure {
 private:
   MarkBitMap* _bitmap;
@@ -2018,11 +2009,18 @@ void ShenandoahHeap::keep_alive(oop obj) {
     ShenandoahBarrierSet::barrier_set()->enqueue(obj);
   }
 }
-#endif // !SVM
 
+#ifdef SVM
+void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool include_image_heap /* = false */) const {
+#else
 void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure* blk) const {
+#endif // SVM
   for (size_t i = 0; i < num_regions(); i++) {
     ShenandoahHeapRegion* current = get_region(i);
+#ifdef SVM
+    // Nothing to do in the image heap
+    if (!include_image_heap && current->is_image_heap()) continue;
+#endif // SVM
     blk->heap_region_do(current);
   }
 }
@@ -2036,11 +2034,20 @@ private:
   shenandoah_padding(0);
   volatile size_t _index;
   shenandoah_padding(1);
+#ifdef SVM
+  bool _include_image_heap;
+#endif // SVM
 
 public:
+#ifdef SVM
+  ShenandoahParallelHeapRegionTask(ShenandoahHeapRegionClosure* blk, size_t stride, bool include_image_heap = false) :
+          WorkerTask("Shenandoah Parallel Region Operation"),
+          _heap(ShenandoahHeap::heap()), _blk(blk), _stride(stride), _index(0), _include_image_heap(include_image_heap) {}
+#else
   ShenandoahParallelHeapRegionTask(ShenandoahHeapRegionClosure* blk, size_t stride) :
           WorkerTask("Shenandoah Parallel Region Operation"),
           _heap(ShenandoahHeap::heap()), _blk(blk), _stride(stride), _index(0) {}
+#endif // SVM
 
   void work(uint worker_id) {
     ShenandoahParallelWorkerSession worker_session(worker_id);
@@ -2055,13 +2062,21 @@ public:
 
       for (size_t i = cur; i < end; i++) {
         ShenandoahHeapRegion* current = _heap->get_region(i);
+#ifdef SVM
+        // Nothing to do in the image heap
+        if (!_include_image_heap && current->is_image_heap()) continue;
+#endif // SVM
         _blk->heap_region_do(current);
       }
     }
   }
 };
 
+#ifdef SVM
+void ShenandoahHeap::parallel_heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool include_image_heap /* = false */) const {
+#else
 void ShenandoahHeap::parallel_heap_region_iterate(ShenandoahHeapRegionClosure* blk) const {
+#endif // SVM
   assert(blk->is_thread_safe(), "Only thread-safe closures here");
   const uint active_workers = workers()->active_workers();
   const size_t n_regions = num_regions();
@@ -2076,14 +2091,13 @@ void ShenandoahHeap::parallel_heap_region_iterate(ShenandoahHeapRegionClosure* b
   }
 
   if (n_regions > stride && active_workers > 1) {
-    ShenandoahParallelHeapRegionTask task(blk, stride);
+    ShenandoahParallelHeapRegionTask task(blk, stride, include_image_heap);
     workers()->run_task(&task);
   } else {
-    heap_region_iterate(blk);
+    heap_region_iterate(blk, include_image_heap);
   }
 }
 
-#ifndef SVM
 class ShenandoahRendezvousClosure : public HandshakeClosure {
 public:
   inline ShenandoahRendezvousClosure(const char* name) : HandshakeClosure(name) {}
@@ -2099,12 +2113,14 @@ void ShenandoahHeap::recycle_trash() {
   free_set()->recycle_trash();
 }
 
+#ifndef SVM
 void ShenandoahHeap::do_class_unloading() {
   _unloader.unload();
   if (mode()->is_generational()) {
     old_generation()->set_parsable(false);
   }
 }
+#endif // !SVM
 
 void ShenandoahHeap::stw_weak_refs(bool full_gc) {
   // Weak refs processing
@@ -2151,7 +2167,9 @@ void ShenandoahHeap::set_gc_state_concurrent(uint mask, bool value) {
   // an inconsistent state. See ShenandoahBarrierSet::on_thread_attach for reference. Established
   // threads will use their thread local copy of the gc state (changed by a handshake, or on a
   // safepoint).
+#ifndef SVM
   assert(Threads_lock->is_locked(), "Must hold thread lock for concurrent gc state change");
+#endif
   _gc_state.set_cond(mask, value);
 }
 
@@ -2260,13 +2278,11 @@ bool ShenandoahHeap::cancel_gc(GCCause::Cause cause) {
   }
   return false;
 }
-#endif // !SVM
 
 uint ShenandoahHeap::max_workers() {
   return _max_workers;
 }
 
-#ifndef SVM
 void ShenandoahHeap::stop() {
   // The shutdown sequence should be able to terminate when GC is running.
 
@@ -2285,6 +2301,7 @@ void ShenandoahHeap::stop() {
   }
 }
 
+#ifndef SVM
 void ShenandoahHeap::stw_unload_classes(bool full_gc) {
   if (!unload_classes()) return;
   ClassUnloadingContext ctx(_workers->active_workers(),
@@ -2324,6 +2341,7 @@ void ShenandoahHeap::stw_unload_classes(bool full_gc) {
   MetaspaceGC::compute_new_size();
   DEBUG_ONLY(MetaspaceUtils::verify();)
 }
+#endif // !SVM
 
 // Weak roots are either pre-evacuated (final mark) or updated (final update refs),
 // so they should not have forwarded oops.
@@ -2365,7 +2383,9 @@ void ShenandoahHeap::parallel_cleaning(bool full_gc) {
                           ShenandoahPhaseTimings::degen_gc_purge);
   stw_weak_refs(full_gc);
   stw_process_weak_roots(full_gc);
+#ifndef SVM
   stw_unload_classes(full_gc);
+#endif // !SVM
 }
 
 void ShenandoahHeap::set_has_forwarded_objects(bool cond) {
@@ -2412,6 +2432,7 @@ void ShenandoahHeap::set_update_refs_in_progress(bool in_progress) {
   set_gc_state_at_safepoint(UPDATE_REFS, in_progress);
 }
 
+#ifndef SVM
 void ShenandoahHeap::register_nmethod(nmethod* nm) {
   ShenandoahCodeRoots::register_nmethod(nm);
 }
@@ -2455,7 +2476,6 @@ void ShenandoahHeap::sync_pinned_region_status() {
 
 #ifdef ASSERT
 void ShenandoahHeap::assert_pinned_region_status() {
-#ifndef SVM
   for (size_t i = 0; i < num_regions(); i++) {
     ShenandoahHeapRegion* r = get_region(i);
     shenandoah_assert_generations_reconciled();
@@ -2464,11 +2484,9 @@ void ShenandoahHeap::assert_pinned_region_status() {
              "Region %zu pinning status is inconsistent", i);
     }
   }
-#endif
 }
 #endif
 
-#ifndef SVM
 ConcurrentGCTimer* ShenandoahHeap::gc_timer() const {
   return _gc_timer;
 }
@@ -2478,17 +2496,21 @@ void ShenandoahHeap::prepare_concurrent_roots() {
   assert(!is_stw_gc_in_progress(), "Only concurrent GC");
   set_concurrent_strong_root_in_progress(!collection_set()->is_empty());
   set_concurrent_weak_root_in_progress(true);
+#ifndef SVM
   if (unload_classes()) {
     _unloader.prepare();
   }
+#endif // !SVM
 }
 
 void ShenandoahHeap::finish_concurrent_roots() {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
   assert(!is_stw_gc_in_progress(), "Only concurrent GC");
+#ifndef SVM
   if (unload_classes()) {
     _unloader.finish();
   }
+#endif // !SVM
 }
 
 #ifdef ASSERT
@@ -2559,7 +2581,9 @@ private:
       if (r->is_active() && !r->is_cset()) {
         _heap->marked_object_oop_iterate(r, &cl, update_watermark);
         if (ShenandoahPacing) {
+#ifndef SVM
           _heap->pacer()->report_update_refs(pointer_delta(update_watermark, r->bottom()));
+#endif // !SVM
         }
       }
       if (_heap->check_cancelled_gc_and_yield(CONCURRENT)) {
@@ -2569,10 +2593,8 @@ private:
     }
   }
 };
-#endif // !SVM
 
 void ShenandoahHeap::update_heap_references(bool concurrent) {
-#ifndef SVM
   assert(!is_full_gc_in_progress(), "Only for concurrent and degenerated GC");
 
   if (concurrent) {
@@ -2582,10 +2604,8 @@ void ShenandoahHeap::update_heap_references(bool concurrent) {
     ShenandoahUpdateHeapRefsTask<false> task(&_update_refs_iterator);
     workers()->run_task(&task);
   }
-#endif // !SVM
 }
 
-#ifndef SVM
 void ShenandoahHeap::update_heap_region_states(bool concurrent) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
   assert(!is_full_gc_in_progress(), "Only for concurrent and degenerated GC");
@@ -2607,16 +2627,12 @@ void ShenandoahHeap::update_heap_region_states(bool concurrent) {
     trash_cset_regions();
   }
 }
-#endif // !SVM
 
 void ShenandoahHeap::final_update_refs_update_region_states() {
-#ifndef SVM
   ShenandoahSynchronizePinnedRegionStates cl;
   parallel_heap_region_iterate(&cl);
-#endif
 }
 
-#ifndef SVM
 void ShenandoahHeap::rebuild_free_set(bool concurrent) {
   ShenandoahGCPhase phase(concurrent ?
                           ShenandoahPhaseTimings::final_update_refs_rebuild_freeset :
@@ -2662,7 +2678,6 @@ void ShenandoahHeap::rebuild_free_set(bool concurrent) {
     old_gen->heuristics()->evaluate_triggers(first_old_region, last_old_region, old_region_count, num_regions());
   }
 }
-#endif // !SVM
 
 bool ShenandoahHeap::is_bitmap_slice_committed(ShenandoahHeapRegion* r, bool skip_self) {
   size_t slice = r->index() / _bitmap_regions_per_slice;
@@ -2734,7 +2749,6 @@ bool ShenandoahHeap::uncommit_bitmap_slice(ShenandoahHeapRegion *r) {
   return true;
 }
 
-#ifndef SVM
 void ShenandoahHeap::forbid_uncommit() {
   if (_uncommit_thread != nullptr) {
     _uncommit_thread->forbid_uncommit();
@@ -2757,14 +2771,14 @@ bool ShenandoahHeap::is_uncommit_in_progress() {
 #endif
 
 void ShenandoahHeap::safepoint_synchronize_begin() {
-  StackWatermarkSet::safepoint_synchronize_begin();
+  // TODO: G1 doesn't use stack watermark barriers but Shenandoah does, so we eventually will have to implement this
+  NOT_SVM(StackWatermarkSet::safepoint_synchronize_begin();)
   SuspendibleThreadSet::synchronize();
 }
 
 void ShenandoahHeap::safepoint_synchronize_end() {
   SuspendibleThreadSet::desynchronize();
 }
-#endif // !SVM
 
 void ShenandoahHeap::try_inject_alloc_failure() {
   if (ShenandoahAllocFailureALot && !cancelled_gc() && ((os::random() % 1000) > 950)) {
@@ -2835,7 +2849,6 @@ bool ShenandoahHeap::is_gc_state(GCState state) const {
 }
 
 
-#ifndef SVM
 ShenandoahLiveData* ShenandoahHeap::get_liveness_cache(uint worker_id) {
 #ifdef ASSERT
   assert(_liveness_cache != nullptr, "sanity");
@@ -2879,6 +2892,7 @@ bool ShenandoahHeap::requires_barriers(stackChunkOop obj) const {
   return false;
 }
 
+#ifndef SVM
 HeapWord* ShenandoahHeap::allocate_loaded_archive_space(size_t size) {
 #if INCLUDE_CDS_JAVA_HEAP
   // CDS wants a continuous memory range to load a bunch of objects.
@@ -2970,7 +2984,6 @@ ShenandoahGeneration* ShenandoahHeap::generation_for(ShenandoahAffiliation affil
   return nullptr;
 }
 
-#ifndef SVM
 void ShenandoahHeap::log_heap_status(const char* msg) const {
   if (mode()->is_generational()) {
     young_generation()->log_status(msg);
@@ -2979,7 +2992,5 @@ void ShenandoahHeap::log_heap_status(const char* msg) const {
     global_generation()->log_status(msg);
   }
 }
-
-#endif // !SVM
 
 } // namespace svm_gc

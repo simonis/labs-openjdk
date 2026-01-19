@@ -33,7 +33,6 @@
 
 namespace svm_gc {
 
-#ifndef SVM
 void print_raw_memory(ShenandoahMessageBuffer &msg, void* loc) {
   // Be extra safe. Only access data that is guaranteed to be safe:
   // should be in heap, in known committed region, within that region.
@@ -67,7 +66,7 @@ void ShenandoahAsserts::print_obj(ShenandoahMessageBuffer& msg, oop obj) {
 
   ShenandoahMarkingContext* const ctx = heap->marking_context();
 
-  msg.append("  " PTR_FORMAT " - klass " PTR_FORMAT " %s\n", p2i(obj), p2i(obj->klass()), obj->klass()->external_name());
+  msg.append("  " PTR_FORMAT " - klass " PTR_FORMAT " %s\n", p2i(obj), p2i(obj->klass()), obj->klass()->NOT_SVM(external_name)SVM_ONLY(internal_name)());
   msg.append("    %3s allocated after mark start\n", ctx->allocated_after_mark_start(obj) ? "" : "not");
   msg.append("    %3s after update watermark\n",     cast_from_oop<HeapWord*>(obj) >= r->get_update_watermark() ? "" : "not");
   msg.append("    %3s marked strong\n",              ctx->is_marked_strong(obj) ? "" : "not");
@@ -209,11 +208,13 @@ void ShenandoahAsserts::assert_correct(void* interior_loc, oop obj, const char* 
                   file,line);
   }
 
+#ifndef SVM
   if (!Metaspace::contains(obj_klass)) {
     print_failure(_safe_unknown, obj, interior_loc, nullptr, "Shenandoah assert_correct failed",
                   "Object klass pointer must go to metaspace",
                   file,line);
   }
+#endif // !SVM
 
   if (!heap->is_in(obj)) {
     print_failure(_safe_unknown, obj, interior_loc, nullptr, "Shenandoah assert_correct failed",
@@ -270,7 +271,7 @@ void ShenandoahAsserts::assert_correct(void* interior_loc, oop obj, const char* 
 
   // Do additional checks for special objects: their fields can hold metadata as well.
   // We want to check class loading/unloading did not corrupt them.
-
+#ifndef SVM
   if (Universe::is_fully_initialized() && (obj_klass == vmClasses::Class_klass())) {
     Metadata* klass = obj->metadata_field(java_lang_Class::klass_offset());
     if (klass != nullptr && !Metaspace::contains(klass)) {
@@ -286,8 +287,8 @@ void ShenandoahAsserts::assert_correct(void* interior_loc, oop obj, const char* 
                     file, line);
     }
   }
-}
 #endif // !SVM
+}
 
 void ShenandoahAsserts::assert_in_correct_region(void* interior_loc, oop obj, const char* file, int line) {
   assert_correct(interior_loc, obj, file, line);

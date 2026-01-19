@@ -476,10 +476,8 @@ protected:
   // The default behavior is to call print_heap_on() and print_gc_on() on tty.
   virtual void print() const;
 
-#ifndef SVM
   // Used to print information about locations in the hs_err file.
   virtual bool print_location(outputStream* st, void* addr) const = 0;
-#endif // !SVM
 
   // Iterator for all GC threads (other than VM thread)
   virtual void gc_threads_do(ThreadClosure* tc) const = 0;

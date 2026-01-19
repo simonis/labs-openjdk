@@ -118,7 +118,7 @@
           "population volume that you are comfortable ignoring when making "\
           "tenuring decisions.")                                            \
                                                                             \
-  ni_runtime(size_t, ShenandoahRegionSize, 0, EXPERIMENTAL,                 \
+  ni_hosted(size_t, ShenandoahRegionSize, 0, EXPERIMENTAL,                 \
           "Static heap region size. Set zero to enable automatic sizing.")  \
                                                                             \
   product(size_t, ShenandoahTargetNumRegions, 2048, EXPERIMENTAL,           \
@@ -126,7 +126,7 @@
           "of regions that would be used, within min/max region size "      \
           "limits.")                                                        \
                                                                             \
-  ni_runtime(size_t, ShenandoahMinRegionSize, 256 * K, EXPERIMENTAL,        \
+  product(size_t, ShenandoahMinRegionSize, 256 * K, EXPERIMENTAL,        \
           "With automatic region sizing, the regions would be at least "    \
           "this large.")                                                    \
                                                                             \
@@ -134,14 +134,14 @@
           "With automatic region sizing, the regions would be at most "     \
           "this large.")                                                    \
                                                                             \
-  product(ccstr, ShenandoahGCMode, "satb",                                  \
+  ni_runtime(ccstr, ShenandoahGCMode, "satb",                               \
           "GC mode to use.  Among other things, this defines which "        \
           "barriers are in in use. Possible values are:"                    \
           " satb - snapshot-at-the-beginning concurrent GC (three pass mark-evac-update);"  \
           " passive - stop the world GC only (either degenerated or full);" \
           " generational - generational concurrent GC")                     \
                                                                             \
-  product(ccstr, ShenandoahGCHeuristics, "adaptive",                        \
+  ni_runtime(ccstr, ShenandoahGCHeuristics, "adaptive",                     \
           "GC heuristics to use. This fine-tunes the GC mode selected, "    \
           "by choosing when to start the GC, how much to process on each "  \
           "cycle, and what other features to automatically enable. "        \
@@ -318,12 +318,12 @@
           "adjustment. Lower values make adjustments faster, at the "       \
           "expense of higher perf overhead. Time is in milliseconds.")      \
                                                                             \
-  product(bool, ShenandoahVerify, false, DIAGNOSTIC,                        \
+  ni_runtime(bool, ShenandoahVerify, false, DIAGNOSTIC,                     \
           "Enable internal verification. This would catch many GC bugs, "   \
           "but it would also stall the collector during the verification, " \
           "which prolongs the pauses and might hide other bugs.")           \
                                                                             \
-  product(intx, ShenandoahVerifyLevel, 4, DIAGNOSTIC,                       \
+  ni_runtime(intx, ShenandoahVerifyLevel, 4, DIAGNOSTIC,                    \
           "Verification level, higher levels check more, taking more time. "\
           "Accepted values are:"                                            \
           " 0 = basic heap checks; "                                        \
@@ -453,7 +453,7 @@
           "triggered.")                                                     \
           range(0, 100)                                                     \
                                                                             \
-  product(bool, ShenandoahDegeneratedGC, true, DIAGNOSTIC,                  \
+  ni_runtime(bool, ShenandoahDegeneratedGC, true, DIAGNOSTIC,               \
           "Enable Degenerated GC as the graceful degradation step. "        \
           "Disabling this option leads to degradation to Full GC instead. " \
           "When running in passive mode, this can be toggled to measure "   \

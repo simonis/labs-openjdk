@@ -402,9 +402,11 @@ EXPORT_FOR_SVM oop svm_gc_allocate_instance(InstanceKlass *k) {
   IsolateThread* thread = IsolateThread::current();
   assert(thread->has_status_vm(), "unexpected thread state");
   assert(k->is_instance_klass(), "must be");
-  SVMGlobalData::_transition_vm_to_native(thread);
+  // The following call is potentially prone to deadlocks if it blocks. We therefore
+  // have to ensure that we transition to native before we block, e.g. in Monitor::wait()
+  // or in ShenandoahLock::contended_lock_internal()
   oop result = Universe::heap()->obj_allocate(k, k->size_helper());
-  SVMGlobalData::_slow_transition_native_to_vm(thread);
+  assert(thread->has_status_vm(), "must be");
   if (result != nullptr) {
     BarrierSet::barrier_set()->on_slowpath_allocation_exit(JavaThread::current(), result);
   }
@@ -421,9 +423,10 @@ EXPORT_FOR_SVM oop svm_gc_allocate_array(ArrayKlass *k, int length) {
   oop result = nullptr;
   if (length >= 0 && length <= k->max_length()) {
     int size = k->object_size(length);
-    SVMGlobalData::_transition_vm_to_native(thread);
+    // The following call is potentially prone to deadlocks if it blocks. We therefore
+    // have to ensure that we transition to native before we block, e.g. in Monitor::wait()
+    // or in ShenandoahLock::contended_lock_internal()
     result = Universe::heap()->array_allocate(k, size, length, true);
-    SVMGlobalData::_slow_transition_native_to_vm(thread);
     assert(thread->has_status_vm(), "must be");
     if (result != nullptr) {
       BarrierSet::barrier_set()->on_slowpath_allocation_exit(JavaThread::current(), result);

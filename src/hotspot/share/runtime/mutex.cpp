@@ -296,9 +296,6 @@ bool Monitor::wait_without_safepoint_check(uint64_t timeout) {
 // timeout is in milliseconds - with zero meaning never timeout
 bool Monitor::wait(uint64_t timeout) {
 #ifdef SVM
-  // NOTE (chaeubl): the current implementation only supports the case that the thread is already in native state. This simplifies the implementation so that it is very similar to wait_without_safepoint_check.
-  assert(IsolateThread::current()->has_status_native_or_safepoint(), "otherwise, the logic would have to be more complex");
-
   Thread* const self = Thread::current();
   // Safepoint checking logically implies an active JavaThread.
   assert(self->is_active_Java_thread(), "invariant");
@@ -314,7 +311,21 @@ bool Monitor::wait(uint64_t timeout) {
   // Check safepoint state after resetting owner and possible NSV.
   check_safepoint_state(self);
 
-  int wait_status = _lock.wait(timeout);
+  int wait_status;
+  IsolateThread *thread = ((JavaThread*) self)->isolate_thread();
+  if (thread->has_status_vm()) {
+    // Before we can potentially block, we have to transition to native first in order to
+    // prevent deadlocks because of not being able to reach a safepoint. For more details
+    // see the comments in svmToGC.cpp and vmThread.cpp.
+    SVMGlobalData::_transition_vm_to_native(thread);
+
+    wait_status = _lock.wait(timeout);
+
+    SVMGlobalData::_slow_transition_native_to_vm(thread);
+    assert(thread->has_status_vm(), "must be");
+  } else {
+    wait_status = _lock.wait(timeout);
+  }
   set_owner(self);
   return wait_status != 0;          // return true IFF timeout
 #else

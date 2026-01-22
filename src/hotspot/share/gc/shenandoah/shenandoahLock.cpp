@@ -55,7 +55,20 @@ void ShenandoahLock::contended_lock_internal(JavaThread* java_thread) {
       SpinPause();
       ctr--;
     } else if (ALLOW_BLOCK) {
-      NOT_SVM(ThreadBlockInVM block(java_thread);)
+#ifndef SVM
+      ThreadBlockInVM block(java_thread);
+#else
+      // In SubstrateVM we have to transition to native such that we can potentially block
+      // for a pending safepoint. If we don't do this, we can easily deadlock if another thread
+      // holds the lock already and waits for a safepoint. For more information on the topic check
+      // the comments in svmToGC.cpp and vmThread.cpp.
+      IsolateThread *thread = java_thread->isolate_thread();
+      bool transition_back_to_vm = false;
+      if (thread->has_status_vm()) {
+        SVMGlobalData::_transition_vm_to_native(thread);
+        transition_back_to_vm = true;
+      }
+#endif // !SVM
       if (SafepointSynchronize::is_synchronizing()) {
         // If safepoint is pending, we want to block and allow safepoint to proceed.
         // Normally, TBIVM above would block us in its destructor.
@@ -74,6 +87,13 @@ void ShenandoahLock::contended_lock_internal(JavaThread* java_thread) {
       } else {
         yield_or_sleep(yields);
       }
+#ifdef SVM
+      if (transition_back_to_vm) {
+        assert(thread->has_status_native(), "must be");
+        SVMGlobalData::_slow_transition_native_to_vm(thread);
+        assert(thread->has_status_vm(), "must be");
+      }
+#endif // SVM
     } else {
       yield_or_sleep(yields);
     }

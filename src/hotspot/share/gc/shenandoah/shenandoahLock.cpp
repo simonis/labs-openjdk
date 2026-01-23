@@ -89,7 +89,7 @@ void ShenandoahLock::contended_lock_internal(JavaThread* java_thread) {
       }
 #ifdef SVM
       if (transition_back_to_vm) {
-        assert(thread->has_status_native(), "must be");
+        assert(thread->has_status_native_or_safepoint(), "must be");
         SVMGlobalData::_slow_transition_native_to_vm(thread);
         assert(thread->has_status_vm(), "must be");
       }

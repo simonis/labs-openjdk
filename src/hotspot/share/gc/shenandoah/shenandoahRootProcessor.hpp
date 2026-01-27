@@ -109,6 +109,11 @@ class ShenandoahOpenImageHeapRoots {
 private:
   ShenandoahSharedSemaphore     _semaphore;
   ShenandoahPhaseTimings::Phase _phase;
+  ShenandoahRegionIterator      _regions;
+  int                           _max_regions_per_thread;
+#ifdef ASSERT
+  int                           _processed_regions;
+#endif
 public:
   ShenandoahOpenImageHeapRoots(ShenandoahPhaseTimings::Phase phase, uint n_workers);
   ~ShenandoahOpenImageHeapRoots();

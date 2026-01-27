@@ -92,19 +92,21 @@ ShenandoahThreadRoots::~ShenandoahThreadRoots() {
 
 #ifdef SVM
 ShenandoahOpenImageHeapRoots::ShenandoahOpenImageHeapRoots(ShenandoahPhaseTimings::Phase phase, uint n_workers) :
-  _semaphore(1), // SVM-TODO: this should be set to something like min(n_workers, open_image_heap_regions)
-  _phase(phase) {
-  Threads::change_thread_claim_token();
+  _semaphore(MIN(SVMGlobalData::_open_image_heap_regions, n_workers)),
+  _phase(phase),
+#ifdef ASSERT
+  _processed_regions(0),
+#endif
+  _max_regions_per_thread((SVMGlobalData::_open_image_heap_regions + (n_workers - 1)) / n_workers) {
 }
 
 void ShenandoahOpenImageHeapRoots::oops_do(OopClosure* oops_cl, uint worker_id) {
-  // SVM-TODO: this should be parallelized to evenly distribute the open image heap regions on the available worker threads,
   if (_semaphore.try_acquire()) {
     ShenandoahWorkerTimingsTracker timer(_phase, ShenandoahPhaseTimings::OpenImageRoots, worker_id);
     ResourceMark rm;
-    ShenandoahRegionIterator _regions;
-    ShenandoahHeapRegion* r = _regions.next();
-    while (r != nullptr) {
+    ShenandoahHeapRegion* r;
+    int i = _max_regions_per_thread;
+    while (i > 0 && (r = _regions.next()) != nullptr) {
       if (r->is_open_image_heap()) {
         HeapWord* t = r->top();
         HeapWord* obj_addr = r->bottom();
@@ -112,14 +114,23 @@ void ShenandoahOpenImageHeapRoots::oops_do(OopClosure* oops_cl, uint worker_id) 
           oop obj = cast_to_oop(obj_addr);
           obj_addr += obj->oop_iterate_size(oops_cl);
         }
+        i--;
+#ifdef ASSERT
+        Atomic::inc(&_processed_regions);
+#endif
+      } else {
+        if (!r->is_image_heap()) {
+          // All the image heap regions are at the beginning of the heap, so we can stop here.
+          break;
+        }
       }
-      r = _regions.next();
     }
   }
 }
 
 ShenandoahOpenImageHeapRoots::~ShenandoahOpenImageHeapRoots() {
-  Threads::assert_all_threads_claimed();
+  assert(_semaphore.value == 0, "semaphore should be zero");
+  assert(_processed_regions == SVMGlobalData::_open_image_heap_regions, "all regions should have been processed");
 }
 #endif // SVM
 

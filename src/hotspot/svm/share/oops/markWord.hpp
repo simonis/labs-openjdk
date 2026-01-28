@@ -140,7 +140,7 @@ class markWord {
   }
 
   // used to encode pointers during GC
-  markWord clear_lock_bits() const { SVM_ONLY(Unimplemented()) NOT_SVM((value() & ~lock_mask_in_place)); }
+  markWord clear_lock_bits() const { return markWord((value() & SVM_ONLY(~mark_mask_in_place) NOT_SVM(~lock_mask_in_place))); }
 
   // age operations
   markWord set_marked()   { return markWord((value() & ~mark_mask_in_place) | marked_value); }

@@ -122,7 +122,6 @@ ShenandoahEvacOOMCounter* ShenandoahEvacOOMHandler::counter_for_thread(Thread* t
   return &_threads_in_evac[key & (_num_counters - 1)];
 }
 
-#ifndef SVM
 void ShenandoahEvacOOMHandler::wait_for_one_counter(ShenandoahEvacOOMCounter* ptr) {
   // We might be racing against handle_out_of_memory_during_evacuation()
   // setting the OOM_MARKER_MASK bit so we must make sure it is set here
@@ -180,7 +179,6 @@ void ShenandoahEvacOOMHandler::handle_out_of_memory_during_evacuation() {
 
   wait_for_no_evac_threads();
 }
-#endif
 
 void ShenandoahEvacOOMHandler::clear() {
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "must be at a safepoint");

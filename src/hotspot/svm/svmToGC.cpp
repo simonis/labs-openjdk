@@ -143,7 +143,8 @@ EXPORT_FOR_SVM void svm_gc_parse_options(int actual_native_image_version, int ar
 
 // NO_TRANSITION - Only called during startup by uninterruptible code before a safepoint can be triggered.
 EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread, char *heap_base,
-    int closed_image_heap_regions, int open_image_heap_regions, typeArrayOop image_heap_region_types, typeArrayOop image_heap_region_free_spaces,
+    int closed_image_heap_regions, int open_image_heap_regions, typeArrayOop image_heap_region_types /* a Java byte[] */,
+    typeArrayOop image_heap_region_free_spaces /* a Java int[] */,
     Klass *dynamic_hub_klass, InstanceKlass *filler_object_klass, TypeArrayKlass *filler_array_klass, Klass *string_klass, Klass *system_klass,
     objArrayOop static_object_fields, typeArrayOop static_primitive_fields, oop vm_operation_thread, oop safepoint, oop runtime_code_info_memory,
     int reference_map_compressed_offset_shift, SVMOopMap *thread_locals_reference_map,

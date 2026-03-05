@@ -50,6 +50,25 @@ typedef void*(*threadStateTransitionFunc)(IsolateThread*);
 typedef bool*(*fastThreadStateTransitionFunc)(IsolateThread*);
 typedef void(*cleanRuntimeCodeCacheFunc)(address, IsolateThread*);
 
+// The following two enums must be kept in sync with the corresponding constants in
+// com.oracle.svm.core.gc.shenandoah.ShenandoahRegionType on the SubstrateVM side.
+enum ShenandoahNIRegionTypeFlags : char {
+  StartsHumongousBit = 0b0001,
+  ContinuesHumongousBit = 0b0010,
+  HumongousBits = StartsHumongousBit | ContinuesHumongousBit,
+  ClosedImageHeapBit = 0b0100,
+  OpenImageHeapBit = 0b1000,
+};
+
+enum ShenandoahNIRegionType : char {
+  ClosedImageHeap = ShenandoahNIRegionTypeFlags::ClosedImageHeapBit,
+  ClosedImageHeapStartsHumongous = ShenandoahNIRegionTypeFlags::ClosedImageHeapBit | ShenandoahNIRegionTypeFlags::StartsHumongousBit,
+  ClosedImageHeapContinuesHumongous = ShenandoahNIRegionTypeFlags::ClosedImageHeapBit | ShenandoahNIRegionTypeFlags::ContinuesHumongousBit,
+
+  OpenImageHeap = ShenandoahNIRegionTypeFlags::OpenImageHeapBit,
+  OpenImageHeapStartsHumongous = ShenandoahNIRegionTypeFlags::OpenImageHeapBit | ShenandoahNIRegionTypeFlags::StartsHumongousBit,
+  OpenImageHeapContinuesHumongous = ShenandoahNIRegionTypeFlags::OpenImageHeapBit | ShenandoahNIRegionTypeFlags::ContinuesHumongousBit
+};
 
 } // namespace svm_gc
 

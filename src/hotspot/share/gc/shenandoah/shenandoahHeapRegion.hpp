@@ -113,6 +113,10 @@ private:
       j) ...
    */
 
+#ifdef SVM
+  static const int _svm_region_state_shift = 4;
+#endif
+
   enum RegionState {
     _empty_uncommitted,       // region is empty and has memory uncommitted
     _empty_committed,         // region is empty and has memory committed
@@ -125,14 +129,28 @@ private:
     _pinned_cset,             // region is pinned and in cset (evac failure path)
     _trash,                   // region contains only trash
 #ifdef SVM
-    _closed_image_heap,       // region for the closed image heap part of a native image
-    _open_image_heap,         // region for the open image heap part of a native image
+    _LAST_NON_SVM_REGION_STATE,
+     // regular region in the closed image heap of the native image
+    _closed_image_heap = ShenandoahNIRegionType::ClosedImageHeap << _svm_region_state_shift,
+     // humongous start region in the closed image heap of the native image
+    _closed_image_heap_humongous_start = ShenandoahNIRegionType::ClosedImageHeapStartsHumongous << _svm_region_state_shift,
+     // humongous continuation region in the closed image heap of the native image
+    _closed_image_heap_humongous_cont = ShenandoahNIRegionType::ClosedImageHeapContinuesHumongous << _svm_region_state_shift,
+     // regular region in the open image heap of the native image
+    _open_image_heap = ShenandoahNIRegionType::OpenImageHeap << _svm_region_state_shift,
+     // humongous start region in the open image heap of the native image
+    _open_image_heap_humongous_start = ShenandoahNIRegionType::OpenImageHeapStartsHumongous << _svm_region_state_shift,
+     // humongous continuation region in the open image heap of the native image
+    _open_image_heap_humongous_cont = ShenandoahNIRegionType::OpenImageHeapContinuesHumongous << _svm_region_state_shift,
 #endif // !SVM
     _REGION_STATES_NUM        // last
   };
 
 public:
   static const char* region_state_to_string(RegionState s) {
+#ifdef SVM
+    assert(_LAST_NON_SVM_REGION_STATE >> _svm_region_state_shift == 0, "Adjust _svm_region_state_shift if you increase the number of non-SVM region states");
+#endif // !SVM
     switch (s) {
       case _empty_uncommitted:       return "Empty Uncommitted";
       case _empty_committed:         return "Empty Committed";
@@ -145,8 +163,12 @@ public:
       case _pinned_cset:             return "Collection Set, Pinned";
       case _trash:                   return "Trash";
 #ifdef SVM
-      case _closed_image_heap:       return "Closed Image Heap";
-      case _open_image_heap:         return "Open Image Heap";
+      case _closed_image_heap:                 return "Closed Image Heap";
+      case _closed_image_heap_humongous_start: return "Closed Image Heap (Humongous Start)";
+      case _closed_image_heap_humongous_cont:  return "Closed Image Heap (Humongous Continuation)";
+      case _open_image_heap:                   return "Open Image Heap";
+      case _open_image_heap_humongous_start:   return "Open Image Heap (Humongous Start)";
+      case _open_image_heap_humongous_cont:    return "Open Image Heap (Humongous Continuation)";
 #endif // !SVM
       default:
         ShouldNotReachHere();
@@ -169,8 +191,12 @@ private:
       case _pinned_cset:            return 8;
       case _pinned_humongous_start: return 9;
 #ifdef SVM
-      case _closed_image_heap:      return 10;
-      case _open_image_heap:        return 11;
+      case _closed_image_heap:                 return _closed_image_heap;
+      case _closed_image_heap_humongous_start: return _closed_image_heap_humongous_start;
+      case _closed_image_heap_humongous_cont:  return _closed_image_heap_humongous_cont;
+      case _open_image_heap:                   return _open_image_heap;
+      case _open_image_heap_humongous_start:   return _open_image_heap_humongous_start;
+      case _open_image_heap_humongous_cont:    return _open_image_heap_humongous_cont;
 #endif // !SVM
       default:
         ShouldNotReachHere();
@@ -207,26 +233,40 @@ public:
   bool is_empty_uncommitted()      const { return state() == _empty_uncommitted; }
   bool is_empty_committed()        const { return state() == _empty_committed; }
   bool is_regular()                const { return state() == _regular; }
-  bool is_humongous_continuation() const { return state() == _humongous_cont; }
+  bool is_humongous_continuation() const { auto cur_state = state();
+                                           return cur_state == _humongous_cont
+                                                  SVM_ONLY(|| cur_state == _closed_image_heap_humongous_cont || cur_state == _open_image_heap_humongous_cont); }
   bool is_regular_pinned()         const { return state() == _pinned; }
   bool is_trash()                  const { return state() == _trash; }
 #ifdef SVM
-  bool is_closed_image_heap()      const { return state() == _closed_image_heap; }
-  bool is_open_image_heap()        const { return state() == _open_image_heap; }
+  bool is_closed_image_heap()      const { auto cur_state = state();
+                                           return cur_state ==  _closed_image_heap ||
+                                                  cur_state ==  _closed_image_heap_humongous_start ||
+                                                  cur_state ==  _closed_image_heap_humongous_cont; }
+  bool is_open_image_heap()        const { auto cur_state = state();
+                                           return cur_state ==  _open_image_heap ||
+                                                  cur_state ==  _open_image_heap_humongous_start ||
+                                                  cur_state ==  _open_image_heap_humongous_cont; }
 #endif // !SVM
 
   // Derived state predicates (boolean combinations of individual states)
   bool static is_empty_state(RegionState state) { return state == _empty_committed || state == _empty_uncommitted; }
-  bool static is_humongous_start_state(RegionState state) { return state == _humongous_start || state == _pinned_humongous_start; }
+  bool static is_humongous_start_state(RegionState state) { return state == _humongous_start || state == _pinned_humongous_start
+                                                                   SVM_ONLY(|| state == _closed_image_heap_humongous_start || state == _open_image_heap_humongous_start); }
   bool is_empty()                  const { return is_empty_state(this->state()); }
   bool is_active()                 const { auto cur_state = state(); return !is_empty_state(cur_state) && cur_state != _trash; }
   bool is_humongous_start()        const { return is_humongous_start_state(state()); }
-  bool is_humongous()              const { auto cur_state = state(); return is_humongous_start_state(cur_state) || cur_state == _humongous_cont; }
+  bool is_humongous()              const { auto cur_state = state();
+                                           return is_humongous_start_state(cur_state) || cur_state == _humongous_cont
+                                                  SVM_ONLY(|| cur_state == _closed_image_heap_humongous_cont || cur_state == _open_image_heap_humongous_cont); }
   bool is_committed()              const { return !is_empty_uncommitted(); }
   bool is_cset()                   const { auto cur_state = state(); return cur_state == _cset || cur_state == _pinned_cset; }
   bool is_pinned()                 const { auto cur_state = state(); return cur_state == _pinned || cur_state == _pinned_cset || cur_state == _pinned_humongous_start; }
 #ifdef SVM
-  bool is_image_heap()             const { auto cur_state = state(); return cur_state == _closed_image_heap || cur_state == _open_image_heap; }
+  bool is_image_heap()             const { auto cur_state = state();
+                                           return cur_state == _closed_image_heap || cur_state == _open_image_heap ||
+                                                  cur_state == _closed_image_heap_humongous_start || cur_state == _open_image_heap_humongous_start ||
+                                                  cur_state == _closed_image_heap_humongous_cont  || cur_state == _open_image_heap_humongous_cont; }
 #endif // !SVM
 
   inline bool is_young() const;
@@ -292,7 +332,7 @@ private:
 public:
   ShenandoahHeapRegion(HeapWord* start, size_t index, bool committed);
 #ifdef SVM
-  ShenandoahHeapRegion(HeapWord* start, size_t index, HeapWord* top);
+  ShenandoahHeapRegion(HeapWord* start, size_t index, HeapWord* top, jbyte state);
 #endif // SVM
   static const size_t MIN_NUM_REGIONS = 10;
 

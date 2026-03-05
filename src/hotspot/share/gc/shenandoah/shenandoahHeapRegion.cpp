@@ -94,7 +94,7 @@ ShenandoahHeapRegion::ShenandoahHeapRegion(HeapWord* start, size_t index, bool c
 }
 
 #ifdef SVM
-ShenandoahHeapRegion::ShenandoahHeapRegion(HeapWord* start, size_t index, HeapWord* top) :
+ShenandoahHeapRegion::ShenandoahHeapRegion(HeapWord* start, size_t index, HeapWord* top, jbyte state) :
   _index(index),
   _bottom(start),
   _end(start + RegionSizeWords),
@@ -114,7 +114,8 @@ ShenandoahHeapRegion::ShenandoahHeapRegion(HeapWord* start, size_t index, HeapWo
 #endif // SHENANDOAH_CENSUS_NOISE
   _needs_bitmap_reset(false)
 {
-  _state = index < SVMGlobalData::_closed_image_heap_regions ? RegionState::_closed_image_heap : RegionState::_open_image_heap;
+  assert(RegionState::_LAST_NON_SVM_REGION_STATE >> _svm_region_state_shift == 0, "SustrateVM region state clashes with HotSpot region states");
+  _state = (RegionState)(state << _svm_region_state_shift);
 
   assert(Universe::on_page_boundary(_bottom) && Universe::on_page_boundary(_end),
          "invalid space boundaries");

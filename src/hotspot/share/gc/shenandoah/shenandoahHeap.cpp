@@ -428,7 +428,7 @@ jint ShenandoahHeap::initialize() {
       ShenandoahHeapRegion* r;
       if (i < image_heap_regions) {
         HeapWord* top = start + (r->region_size_words() - (SVMIsolateData::_image_heap_region_free_spaces->int_at(i) / HeapWordSize));
-        r = new (loc) ShenandoahHeapRegion(start, i, top);
+        r = new (loc) ShenandoahHeapRegion(start, i, top, SVMIsolateData::_image_heap_region_types->byte_at(i));
         log_trace(gc)("Initializing region %d: (%s) [" PTR_FORMAT ", " PTR_FORMAT ", " PTR_FORMAT "]",
                       (int)i, ShenandoahHeapRegion::region_state_to_string(r->state()), p2i(start), p2i(top), p2i(start + ShenandoahHeapRegion::region_size_words()));
       } else {

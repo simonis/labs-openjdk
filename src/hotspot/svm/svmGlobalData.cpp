@@ -35,8 +35,8 @@ char** SVMIsolateData::_argv = 0;
 size_t SVMIsolateData::_max_heap_address_space_size = 0;
 
 char* SVMIsolateData::_heap_base = nullptr;
-typeArrayOop SVMIsolateData::_image_heap_region_types = nullptr;
-typeArrayOop SVMIsolateData::_image_heap_region_free_spaces = nullptr;
+typeArrayOop SVMIsolateData::_image_heap_region_types = nullptr; // This is a Java byte[]
+typeArrayOop SVMIsolateData::_image_heap_region_free_spaces = nullptr; // This is a Java int[]
 objArrayOop SVMIsolateData::_static_object_fields = nullptr;
 typeArrayOop SVMIsolateData::_static_primitive_fields = nullptr;
 oop SVMIsolateData::_vm_operation_thread = nullptr;

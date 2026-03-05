@@ -108,11 +108,13 @@ void ShenandoahOpenImageHeapRoots::oops_do(OopClosure* oops_cl, uint worker_id) 
     int i = _max_regions_per_thread;
     while (i > 0 && (r = _regions.next()) != nullptr) {
       if (r->is_open_image_heap()) {
-        HeapWord* t = r->top();
-        HeapWord* obj_addr = r->bottom();
-        while (obj_addr < t) {
-          oop obj = cast_to_oop(obj_addr);
-          obj_addr += obj->oop_iterate_size(oops_cl);
+        if (!r->is_humongous_continuation()) {
+          HeapWord* t = r->top();
+          HeapWord* obj_addr = r->bottom();
+          while (obj_addr < t) {
+            oop obj = cast_to_oop(obj_addr);
+            obj_addr += obj->oop_iterate_size(oops_cl);
+          }
         }
         i--;
 #ifdef ASSERT

@@ -30,15 +30,17 @@
 
 namespace svm_gc {
 
-class ShenandoahEvacuationInformation;
+class ShenandoahCollectionSet;
 
 class ShenandoahTracer : public GCTracer, public CHeapObj<mtGC> {
 public:
   ShenandoahTracer() : GCTracer(Shenandoah) {}
-  void report_evacuation_info(ShenandoahEvacuationInformation* info);
 
-private:
-  void send_evacuation_info_event(ShenandoahEvacuationInformation* info);
+  // Sends a JFR event (if enabled) summarizing the composition of the collection set
+  static void report_evacuation_info(const ShenandoahCollectionSet* cset,
+    size_t free_regions, size_t regions_promoted_humongous, size_t regions_promoted_regular,
+    size_t regular_promoted_garbage, size_t regular_promoted_free, size_t regions_immediate,
+    size_t immediate_size);
 };
 
 } // namespace svm_gc

@@ -53,10 +53,9 @@ protected:
   size_t add_preselected_regions_to_collection_set(ShenandoahCollectionSet* cset,
                                                    const RegionData* data,
                                                    size_t size) const;
-
-  void log_cset_composition(ShenandoahCollectionSet* cset) const;
 };
 
 } // namespace svm_gc
 
 #endif //SHARE_GC_SHENANDOAH_HEURISTICS_SHENANDOAHGENERATIONALHEURISTICS_HPP
+

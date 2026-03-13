@@ -419,6 +419,17 @@ bool ShenandoahReferenceProcessor::discover_reference(oop reference, ReferenceTy
     return false;
   }
 
+#ifdef SVM
+  // Do not process references in the image heap. Soft/Weak/Phantom references in the
+  // native image heap can only refer to objects in the native image heap itself and
+  // those objects don't get garbage collected anyway.
+  if (ShenandoahHeap::heap()->heap_region_containing(reference)->is_image_heap()) {
+    log_trace(gc, ref)("Skipping Reference: " PTR_FORMAT " (%s, in native image heap)",
+            p2i(reference), reference_type_name(type));
+    return false;
+  }
+#endif // SVM
+
   log_trace(gc, ref)("Encountered Reference: " PTR_FORMAT " (%s, %s)",
           p2i(reference), reference_type_name(type), ShenandoahHeap::heap()->heap_region_containing(reference)->affiliation_name());
   uint worker_id = WorkerThread::worker_id();

@@ -220,7 +220,7 @@ class ClaimMetadataVisitingOopIterateClosure : public OopIterateClosure {
 // It's used to proxy through the metadata to the oops defined in them.
 class MetadataVisitingOopIterateClosure: public ClaimMetadataVisitingOopIterateClosure {
  public:
-  MetadataVisitingOopIterateClosure(ReferenceDiscoverer* rd = nullptr) SVM_ONLY({});
+  MetadataVisitingOopIterateClosure(ReferenceDiscoverer* rd = nullptr);
 };
 
 // ObjectClosure is used for iterating through an object space

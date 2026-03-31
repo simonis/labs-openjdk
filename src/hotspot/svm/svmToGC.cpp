@@ -596,7 +596,13 @@ EXPORT_FOR_SVM void svm_gc_register_deopt_metadata(nmethod* nm) {
 EXPORT_FOR_SVM void svm_gc_get_internal_state(ShenandoahInternalState *gc_internal_data) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
 
-  Unimplemented();
+  if (gc_internal_data != nullptr) {
+    CollectedHeap* ch = Universe::heap();
+    gc_internal_data->total_collections = ch->total_collections();
+    gc_internal_data->full_collections = ch->total_full_collections();
+    gc_internal_data->card_table_size = 0;         // TODO
+    gc_internal_data->card_table_start = nullptr;  // TODO
+  }
 }
 
 // NO_TRANSITION - Only called when printing diagnostics.
@@ -613,7 +619,14 @@ EXPORT_FOR_SVM const char* svm_gc_get_current_thread_name() {
 EXPORT_FOR_SVM bool svm_gc_get_region_info(int region_index, ShenandoahRegionInfo *region_info) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
 
-  Unimplemented();
+  ShenandoahHeapRegion *region = ShenandoahHeap::heap()->get_region(region_index);
+  if (region_info != nullptr && region != nullptr) {
+    region_info->bottom = (u_char*)region->bottom();
+    region_info->end = (u_char*)region->end();
+    region_info->top = (u_char*)region->top();
+    region_info->region_type = region->state(); // TODO: region state is bigger than 'char' for image heap regions.
+    return true;
+  }
   return false;
 }
 

@@ -125,13 +125,14 @@ In order to run Native Image with Shenandoah, you need to use the [simonis/GR-70
     -esa -g -O0 -H:+SourceLevelDebug -H:-DeleteLocalSymbols -H:+IncludeDebugHelperMethods \
 	--native-compiler-options=-L$BUILD_ROOT/labsjdk-GR-70066-dbg \
 	--native-compiler-options=-Wl,--unresolved-symbols=ignore-all \
+	--native-compiler-options=-Wl,--allow-shlib-undefined \
 	--gc=shenandoah -H:ShenandoahDebugLevel=debug --gc=shenandoah \
 	-o HelloWorld.exe HelloWorld
   ```
 - Run the native executable with: ` LD_LIBRARY_PATH=$BUILD_ROOT ./HelloWorld.exe -XX:ShenandoahGCMode=passive`
 - It should run fine without any unexpected exceptions or crashes. If you detect any problems, please report :)
 
-The `--native-compiler-options=-Wl,--unresolved-symbols=ignore-all` is only required during development while `libshenandoahgc-debug-ur.so` can still contain undefined symbols (i.e. `nm -C -u libshenandoahgc-debug-ur.so | grep svm_gc` is not empty).
+The `--native-compiler-options=-Wl,--unresolved-symbols=ignore-all` is only required during development while `libshenandoahgc-debug-ur.so` can still contain undefined symbols (i.e. `nm -C -u libshenandoahgc-debug-ur.so | grep svm_gc` is not empty). `--native-compiler-options=-Wl,--allow-shlib-undefined` my be additionally required with older version of `gcc`/`ld` (e.g. `10.5.0`/`2.29.1`).
 
 ## Importing the Shenandoah implementation
 

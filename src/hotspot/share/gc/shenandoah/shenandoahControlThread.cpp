@@ -36,6 +36,7 @@
 #include "gc/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "gc/shenandoah/shenandoahPacer.inline.hpp"
 #include "gc/shenandoah/shenandoahUtils.hpp"
+#include "gc/shenandoah/shenandoahVMOperations.hpp"
 #include "logging/log.hpp"
 #include "memory/metaspaceStats.hpp"
 #include "memory/metaspaceUtils.hpp"
@@ -154,6 +155,26 @@ void ShenandoahControlThread::run_service() {
       // If GC was requested, we better dump freeset data for performance debugging
       heap->free_set()->log_status_under_lock();
 
+#ifdef SVM
+      if (_blocked_in_vm.is_set()) {
+        // A GC was requested but the VM thread is already blocked in another VM operation.
+        assert(mode == stw_full, "only stw_full mode implemented for now");
+        // Construct a VM operation for doing a full GC (see service_stw_full_cycle(cause)).
+        ShenandoahHeap* const heap = ShenandoahHeap::heap();
+        ShenandoahGCSession session(cause, heap->global_generation());
+        ShenandoahFullGC gc;
+        ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::full_gc_gross);
+        VM_ShenandoahFullGC op(cause, &gc);
+        _vm_operation = &op;
+        // Now wake up the VM thread which is blocked on the _gc_waiters_lock.
+        notify_gc_waiters();
+        // We have to wait until the VM thread is done with the GC to prevent that
+        // the stack allocated VM operation will be released too early.
+        while (!_blocked_in_vm.is_unset()) {
+          os::naked_short_sleep(sleep);
+        }
+      } else {
+#endif // SVM
       switch (mode) {
         case concurrent_normal:
           service_concurrent_normal_cycle(cause);
@@ -172,6 +193,9 @@ void ShenandoahControlThread::run_service() {
       if (is_gc_requested) {
         notify_gc_waiters();
       }
+#ifdef SVM
+      }
+#endif // SVM
 
       // If this cycle completed without being cancelled, notify waiters about it
       if (!heap->cancelled_gc()) {
@@ -417,7 +441,36 @@ void ShenandoahControlThread::handle_requested_gc(GCCause::Cause cause) {
     _requested_gc_cause = cause;
     _gc_requested.set();
 
+#ifdef SVM
+    if (Thread::current()->is_VM_thread()) {
+      // We're about to block in the VM thread.
+      _blocked_in_vm.set();
+    }
+#endif // SVM
+
     ml.wait();
+
+#ifdef SVM
+    if (Thread::current()->is_VM_thread() && _blocked_in_vm.is_set() && _vm_operation != nullptr) {
+      // We've been woken up to execute a nested VM operation.
+      // Transition from native back to VM (this is expected by the VM thread when executing a nested VM operation).
+      assert(IsolateThread::current()->has_status_native(), "must be");
+      SVMGlobalData::_slow_transition_native_to_vm(IsolateThread::current());
+      // We have to release the _gc_waiters_lock such that we can acquire the heap lock during a GC operation
+      _gc_waiters_lock.unlock();
+      // Now execute the nested VM operation.
+      VMThread::execute(_vm_operation);
+      _vm_operation = nullptr;
+      // We have to relock the _gc_waiters_lock lock, otherwise the MonitorLocker destructor will fail.
+      _gc_waiters_lock.lock();
+      // Transition back to native.
+      assert(IsolateThread::current()->has_status_vm(), "must be");
+      SVMGlobalData::_transition_vm_to_native(IsolateThread::current());
+      // Only unset _blocked_in_vm after we've finished to prevent that the ShenandoahControlThread
+      // releases the stack allocated _vm_operation too early.
+      _blocked_in_vm.unset();
+    }
+#endif // SVM
     current_gc_id = get_gc_id();
   }
 }

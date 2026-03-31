@@ -31,6 +31,7 @@
 #include "gc/shenandoah/shenandoahGC.hpp"
 #include "gc/shenandoah/shenandoahPadding.hpp"
 #include "gc/shenandoah/shenandoahSharedVariables.hpp"
+#include "runtime/vmOperation.hpp"
 
 namespace svm_gc {
 
@@ -46,6 +47,10 @@ private:
   } GCMode;
 
   ShenandoahSharedFlag _gc_requested;
+#ifdef SVM
+  ShenandoahSharedFlag _blocked_in_vm; // Used to signal that the VM thread is blocked in a GC operation.
+  VM_Operation*        _vm_operation;  // Used by the ShenandoahControlThread to tell the VM thread which nested VM operation to execute.
+#endif // SVM
   GCCause::Cause       _requested_gc_cause;
   ShenandoahGC::ShenandoahDegenPoint _degen_point;
 

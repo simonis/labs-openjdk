@@ -371,6 +371,7 @@ EXPORT_FOR_SVM void svm_gc_collect(int cause) {
   if (!DisableExplicitGC) {
     SVMGlobalData::_transition_vm_to_native(thread);
     Universe::heap()->collect(GCCause::_java_lang_system_gc);
+    assert(thread->has_status_native(), "must be");
     SVMGlobalData::_slow_transition_native_to_vm(thread);
     assert(thread->has_status_vm(), "must be");
    }

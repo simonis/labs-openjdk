@@ -101,6 +101,13 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   for (size_t i = 0; i < num_regions; i++) {
     ShenandoahHeapRegion* region = heap->get_region(i);
 
+#ifdef SVM
+    if (region->is_image_heap()) {
+      // We don't collect the image heap
+      continue;
+    }
+#endif // SVM
+
     size_t garbage = region->garbage();
     total_garbage += garbage;
 
@@ -120,7 +127,6 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
       }
     } else if (region->is_humongous_start()) {
       // Reclaim humongous regions here, and count them as the immediate garbage
-#ifndef SVM
 #ifdef ASSERT
       bool reg_live = region->has_live();
       bool bm_live = heap->gc_generation()->complete_marking_context()->is_marked(cast_to_oop(region->bottom()));
@@ -128,7 +134,6 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
              "Humongous liveness and marks should agree. Region live: %s; Bitmap live: %s; Region Live Words: %zu",
              BOOL_TO_STR(reg_live), BOOL_TO_STR(bm_live), region->get_live_data_words());
 #endif
-#endif // !SVM
       if (!region->has_live()) {
         heap->trash_humongous_region_at(region);
 

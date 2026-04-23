@@ -232,36 +232,12 @@ void ShenandoahControlThread::run_service() {
         heuristics->clear_metaspace_oom();
       }
 
-      // Commit worker statistics to cycle data
-      heap->phase_timings()->flush_par_workers_to_cycle();
+      // Manage and print gc stats
+      heap->process_gc_stats();
 #ifndef SVM
-      if (ShenandoahPacing) {
-        heap->pacer()->flush_stats_to_cycle();
-      }
 #endif // !SVM
-
-      // Print GC stats for current cycle
-      {
-        LogTarget(Info, gc, stats) lt;
-        if (lt.is_enabled()) {
-          ResourceMark rm;
-          LogStream ls(lt);
-          heap->phase_timings()->print_cycle_on(&ls);
 #ifndef SVM
-          if (ShenandoahPacing) {
-            heap->pacer()->print_cycle_on(&ls);
-          }
 #endif // !SVM
-          if (ShenandoahEvacTracking) {
-            ShenandoahEvacuationTracker* evac_tracker = heap->evac_tracker();
-            ShenandoahCycleStats         evac_stats   = evac_tracker->flush_cycle_to_global();
-            evac_tracker->print_evacuations_on(&ls, &evac_stats.workers, &evac_stats.mutators);
-          }
-        }
-      }
-
-      // Commit statistics to globals
-      heap->phase_timings()->flush_cycle_to_global();
 
 #ifndef SVM
       // Print Metaspace change following GC (if logging is enabled).

@@ -187,4 +187,8 @@ void ShenandoahEvacOOMHandler::clear() {
   }
 }
 
+bool ShenandoahEvacOOMHandler::is_active() {
+  return ShenandoahThreadLocalData::evac_oom_scope_level(Thread::current()) > 0;
+}
+
 } // namespace svm_gc

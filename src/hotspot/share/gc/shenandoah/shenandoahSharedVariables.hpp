@@ -31,11 +31,7 @@
 
 namespace svm_gc {
 
-typedef jbyte ShenandoahSharedValue;
-
-// Needed for cooperation with generated code.
-STATIC_ASSERT(sizeof(ShenandoahSharedValue) == 1);
-
+typedef int32_t ShenandoahSharedValue;
 typedef struct ShenandoahSharedFlag {
   enum {
     UNSET = 0,

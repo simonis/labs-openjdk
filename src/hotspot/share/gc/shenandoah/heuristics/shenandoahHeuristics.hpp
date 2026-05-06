@@ -227,7 +227,7 @@ public:
 
   virtual void record_success_concurrent();
 
-  virtual void record_success_degenerated();
+  virtual void record_degenerated();
 
   virtual void record_success_full();
 

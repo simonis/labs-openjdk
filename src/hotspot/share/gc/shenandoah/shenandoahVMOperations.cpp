@@ -100,6 +100,13 @@ void VM_ShenandoahFullGC::doit() {
   _full_gc->entry_full(_gc_cause);
 }
 
+#ifdef SVM
+void VM_ShenandoahFullGC::doit_epilogue() {
+  VM_ShenandoahReferenceOperation::doit_epilogue();
+  _done = true;
+}
+#endif // !SVM
+
 void VM_ShenandoahDegeneratedGC::doit() {
   ShenandoahGCPauseMark mark(_gc_id, "Degenerated GC", SvcGCMarker::CONCURRENT);
   set_active_generation();

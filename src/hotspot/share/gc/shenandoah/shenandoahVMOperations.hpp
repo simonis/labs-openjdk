@@ -107,14 +107,20 @@ class VM_ShenandoahFullGC : public VM_ShenandoahReferenceOperation {
 private:
   GCCause::Cause           _gc_cause;
   ShenandoahFullGC* const  _full_gc;
+  bool                     _done;
 public:
   VM_ShenandoahFullGC(GCCause::Cause gc_cause, ShenandoahFullGC* full_gc) :
     VM_ShenandoahReferenceOperation(),
     _gc_cause(gc_cause),
-    _full_gc(full_gc) {};
+    _full_gc(full_gc),
+    _done(false) {};
   VM_Operation::VMOp_Type type() const { return VMOp_ShenandoahFullGC; }
   const char* name()             const { return "Shenandoah Full GC"; }
   virtual void doit();
+#ifdef SVM
+  void doit_epilogue() override;
+  bool done() {return _done; }
+#endif // SVM
 };
 
 class VM_ShenandoahInitUpdateRefs: public VM_ShenandoahOperation {

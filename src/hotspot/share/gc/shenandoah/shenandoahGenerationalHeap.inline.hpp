@@ -30,8 +30,12 @@
 #include "gc/shenandoah/shenandoahAgeCensus.hpp"
 #include "gc/shenandoah/shenandoahHeapRegion.hpp"
 
+namespace svm_gc {
+
 inline bool ShenandoahGenerationalHeap::is_tenurable(const ShenandoahHeapRegion* r) const {
   return _age_census->is_tenurable(r->age());
 }
+
+} // namespace svm_gc
 
 #endif // SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALHEAP_INLINE_HPP

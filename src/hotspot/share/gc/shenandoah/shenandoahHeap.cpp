@@ -1532,9 +1532,11 @@ void ShenandoahHeap::process_gc_stats() const {
   // Commit worker statistics to cycle data
   phase_timings()->flush_par_workers_to_cycle();
 
+#ifndef SVM
   if (ShenandoahPacing) {
     pacer()->flush_stats_to_cycle();
   }
+#endif // !SVM
 
   // Print GC stats for current cycle
   LogTarget(Info, gc, stats) lt;

@@ -175,11 +175,9 @@ void GCArguments::initialize_heap_flags_and_sizes() {
     }
   }
 
-#ifndef SVM
   if (FLAG_IS_DEFAULT(SoftMaxHeapSize)) {
     FLAG_SET_ERGO(SoftMaxHeapSize, MaxHeapSize);
   }
-#endif // !SVM
 
   FLAG_SET_ERGO(MinHeapDeltaBytes, align_up(MinHeapDeltaBytes, SpaceAlignment));
 

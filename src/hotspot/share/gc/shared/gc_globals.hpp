@@ -585,7 +585,7 @@
           "Maximum heap size (in bytes)")                                   \
           constraint(MaxHeapSizeConstraintFunc,AfterErgo)                   \
                                                                             \
-  product(size_t, SoftMaxHeapSize, 0, MANAGEABLE,                           \
+  ni_runtime(size_t, SoftMaxHeapSize, 0, MANAGEABLE,                        \
           "Soft limit for maximum heap size (in bytes)")                    \
           constraint(SoftMaxHeapSizeConstraintFunc,AfterMemoryInit)         \
                                                                             \

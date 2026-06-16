@@ -112,7 +112,11 @@ void VMThread::execute(VM_Operation* op) {
   VM_OperationData *op_data = op->data();
   VM_OperationWrapperData wrapper_data;
   memset(&wrapper_data, 0, sizeof(VM_OperationWrapperData));
-  _cur_vm_operation = op;
+  // Note: _cur_vm_operation is set on the VM operation thread around the actual
+  // execution of the operation (see svm_gc_execute_vm_operation_main), not here.
+  // VMThread::execute() may run on a queuing thread (e.g. the GC control thread),
+  // and writing the shared _cur_vm_operation from a queuing thread races with the
+  // VM operation thread executing nested operations.
   switch (op->type()) {
     case VM_Operation::VMOp_Verify:
       SVMGlobalData::_verify_heap_op(heap_base, isolate_thread, op_data, &wrapper_data);
@@ -168,7 +172,6 @@ void VMThread::execute(VM_Operation* op) {
       os::naked_yield();
     }
   }
-  _cur_vm_operation = nullptr;
 
   guarantee(isolate_thread == nullptr || isolate_thread->has_status_vm(), "isolate thread must be back in VM state");
 }

@@ -44,7 +44,7 @@ public:
   bool collect(GCCause::Cause cause);
 
 private:
-  void vmop_degenerated();
+  void vmop_degenerated(GCCause::Cause cause);
   void entry_degenerated();
   void op_degenerated();
 

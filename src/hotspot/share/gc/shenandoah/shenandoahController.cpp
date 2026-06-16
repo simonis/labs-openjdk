@@ -55,6 +55,24 @@ void ShenandoahController::handle_alloc_failure(const ShenandoahAllocRequest& re
   const GCCause::Cause cause = is_humongous ? GCCause::_shenandoah_humongous_allocation_failure : GCCause::_allocation_failure;
 
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
+
+#ifdef SVM
+  if (current()->is_VM_thread()) {
+    // In SVM the VM operation thread is a regular Java thread that can allocate
+    // (and thus run into allocation failures) while executing a VM operation.
+    // It must not block waiting for the control thread to run a GC: a STW GC is
+    // itself a VM operation that has to run on this very thread, and the control
+    // thread may be blocked waiting for this thread to become available again.
+    //
+    // Instead, run the GC directly and synchronously on this thread. When this
+    // returns the GC has completed, so there is nothing left to wait for and the
+    // allocation can be retried by the caller.
+    log_info(gc)("Failed to allocate %s, " PROPERFMT " (VM thread)", req.type_string(), PROPERFMTARGS(req.size() * HeapWordSize));
+    run_gc_on_vm_thread(cause);
+    return;
+  }
+#endif // SVM
+
   if (heap->cancel_gc(cause)) {
     log_info(gc)("Failed to allocate %s, " PROPERFMT, req.type_string(), PROPERFMTARGS(req.size() * HeapWordSize));
     request_gc(cause);

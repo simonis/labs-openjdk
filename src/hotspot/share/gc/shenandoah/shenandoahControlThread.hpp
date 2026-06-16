@@ -47,10 +47,6 @@ private:
   } GCMode;
 
   ShenandoahSharedFlag _gc_requested;
-#ifdef SVM
-  ShenandoahSharedFlag _blocked_in_vm; // Used to signal that the VM thread is blocked in a GC operation.
-  VM_Operation*        _vm_operation;  // Used by the ShenandoahControlThread to tell the VM thread which nested VM operation to execute.
-#endif // SVM
   GCCause::Cause       _requested_gc_cause;
   ShenandoahGC::ShenandoahDegenPoint _degen_point;
 
@@ -79,6 +75,17 @@ private:
   // Handle GC request.
   // Blocks until GC is over.
   void handle_requested_gc(GCCause::Cause cause);
+
+#ifdef SVM
+public:
+  // Runs a STW full GC directly on the VM operation thread. In SVM the VM
+  // operation thread is a Java thread that can allocate (and therefore trigger
+  // a GC) while executing a VM operation. Because a STW GC is itself a VM
+  // operation that must run on the VM operation thread, such a GC cannot be
+  // delegated to the control thread (which might be blocked waiting for this
+  // very thread). The GC is therefore executed inline and synchronously.
+  void run_gc_on_vm_thread(GCCause::Cause cause) override;
+#endif // SVM
 };
 
 } // namespace svm_gc

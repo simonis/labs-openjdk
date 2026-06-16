@@ -86,7 +86,11 @@ bool ShenandoahFullGC::collect(GCCause::Cause cause) {
 void ShenandoahFullGC::vmop_entry_full(GCCause::Cause cause) {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
   NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->full_stw_collection_counters());)
-  ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::full_gc_gross);
+  // In SVM the gross-timing tracker (which manipulates the global "current phase"
+  // state) is created inside VM_ShenandoahFullGC::doit() so that, like the GC
+  // session, it runs on the single VM operation thread and serializes with a GC
+  // the VM operation thread may run inline for itself.
+  NOT_SVM(ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::full_gc_gross);)
 
   heap->try_inject_alloc_failure();
   VM_ShenandoahFullGC op(cause, this);

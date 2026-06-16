@@ -55,7 +55,7 @@ ShenandoahDegenGC::ShenandoahDegenGC(ShenandoahDegenPoint degen_point, Shenandoa
 }
 
 bool ShenandoahDegenGC::collect(GCCause::Cause cause) {
-  vmop_degenerated();
+  vmop_degenerated(cause);
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (heap->mode()->is_generational()) {
     bool is_bootstrap_gc = heap->old_generation()->is_bootstrapping();
@@ -66,10 +66,12 @@ bool ShenandoahDegenGC::collect(GCCause::Cause cause) {
   return true;
 }
 
-void ShenandoahDegenGC::vmop_degenerated() {
+void ShenandoahDegenGC::vmop_degenerated(GCCause::Cause cause) {
   NOT_SVM(TraceCollectorStats tcs(ShenandoahHeap::heap()->monitoring_support()->full_stw_collection_counters());)
-  ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::degen_gc_gross);
-  VM_ShenandoahDegeneratedGC degenerated_gc(this);
+  // For SVM the gross-timing tracker is created inside VM_ShenandoahDegeneratedGC::doit()
+  // so it runs on the single VM operation thread (see VM_ShenandoahFullGC::vmop_entry_full).
+  NOT_SVM(ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::degen_gc_gross);)
+  VM_ShenandoahDegeneratedGC degenerated_gc(this SVM_ONLY(COMMA cause));
   VMThread::execute(&degenerated_gc);
 }
 

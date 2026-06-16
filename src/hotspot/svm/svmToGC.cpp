@@ -389,7 +389,13 @@ EXPORT_FOR_SVM void svm_gc_execute_vm_operation_main(VM_OperationData *data) {
   assert(Thread::current()->is_VM_thread(), "must be the VM thread");
   assert(SafepointSynchronize::get_safepoint_state() == SafepointSynchronize::at_safepoint, "must be at a safepoint");
   assert(IsolateThread::current()->has_status_native(), "unexpected thread state");
+  // Record the operation that is currently executing on the VM operation thread.
+  // This is read e.g. by is_at_shenandoah_safepoint(). Save/restore here (rather
+  // than in VMThread::execute) so that it stays correct for nested VM operations
+  // (e.g. a GC the VM operation thread runs inline due to an allocation failure).
+  VM_Operation* const prev = VMThread::set_current_vm_operation(data->vm_operation());
   data->vm_operation()->evaluate();
+  VMThread::restore_current_vm_operation(prev);
 }
 
 // TO_NATIVE - Only called from the VM thread.

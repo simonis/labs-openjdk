@@ -70,6 +70,13 @@ public:
   // like System.gc and "implicit" gc requests, like metaspace oom.
   virtual void request_gc(GCCause::Cause cause) = 0;
 
+#ifdef SVM
+  // Runs a STW full GC directly on the VM operation thread (a Java thread in
+  // SVM that can allocate while executing a VM operation). See the override in
+  // ShenandoahControlThread for details.
+  virtual void run_gc_on_vm_thread(GCCause::Cause cause) = 0;
+#endif // SVM
+
   // This cancels the collection cycle and has an option to block
   // until another cycle completes successfully.
   void handle_alloc_failure(const ShenandoahAllocRequest& req, bool block);

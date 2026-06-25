@@ -1,6 +1,6 @@
 # Overview
 
-This branch is based on the tag `25+37-jvmci-b04` of this repository and contains infrastructure that simplifies the integration of HotSpot garbage collectors into Native Image.
+This branch was originally based on the tag `25+37-jvmci-b04` of this repository and contains infrastructure that simplifies the integration of HotSpot garbage collectors into Native Image. The Shenandoah sources have meanwhile been updaetd on the HotSpot version on the tag `jdk-25.0.4+6`.
 
 ## Limitations
 
@@ -136,8 +136,8 @@ The `--native-compiler-options=-Wl,--unresolved-symbols=ignore-all` is only requ
 
 ## Importing the Shenandoah implementation
 
-This repository is based on `25+37-jvmci-b04` so we must be careful when importing the requierd Shenandoah files and their dependencies (which were removed by [Remove unnecessary files](https://github.com/graalvm/labs-openjdk/commit/35c85302eb6)) at that specific version such that things don't get out of sync. This can be achieved with `git checkout 25+37-jvmci-b04 -- <file>`, e.g.:
+This branch was originally based on `25+37-jvmci-b04` but the existing Shenandoah sources have meanwhile been upgraded to tag `jdk-25.0.4+6`, so we must be careful when importing missing Shenandoah files and their dependencies (which were removed by [Remove unnecessary files](https://github.com/graalvm/labs-openjdk/commit/35c85302eb6)) at that specific version such that things don't get out of sync. This can be achieved with `git checkout jdk-25.0.4+6 -- <file>`, e.g.:
 
 ```shell
-git checkout 25+37-jvmci-b04 -- src/hotspot/share/gc/shenandoah/shenandoahHeapRegion.hpp
+git checkout jdk-25.0.4+6 -- src/hotspot/share/gc/shenandoah/shenandoahHeapRegion.hpp
 ```

@@ -802,7 +802,7 @@ public:
   HeapWord* addr_for_cluster(size_t cluster_no);
 
   void reset_object_range(HeapWord* from, HeapWord* to);
-  void register_object(HeapWord* addr) SVM_ONLY({ Unimplemented(); });
+  void register_object(HeapWord* addr);
   void register_object_without_lock(HeapWord* addr);
   void coalesce_objects(HeapWord* addr, size_t length_in_words);
 

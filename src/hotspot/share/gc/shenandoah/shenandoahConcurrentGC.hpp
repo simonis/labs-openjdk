@@ -59,15 +59,14 @@ private:
 public:
   ShenandoahConcurrentGC(ShenandoahGeneration* generation, bool do_old_gc_bootstrap);
 
-  bool collect(GCCause::Cause cause) override SVM_ONLY({ Unimplemented(); });
+  bool collect(GCCause::Cause cause) override;
   ShenandoahDegenPoint degen_point() const;
 
-  void entry_concurrent_update_refs_prepare(ShenandoahHeap* heap) SVM_ONLY({ Unimplemented(); });
+  void entry_concurrent_update_refs_prepare(ShenandoahHeap* heap);
 
   // Return true if this cycle found enough immediate garbage to skip evacuation
   bool abbreviated() const { return _abbreviated; }
 
-#ifndef SVM
 protected:
   // Entry points to STW GC operations, these cause a related safepoint, that then
   // call the entry method below
@@ -156,7 +155,6 @@ private:
   const char* conc_weak_roots_event_message() const;
   const char* conc_cleanup_event_message() const;
   const char* conc_init_update_refs_event_message() const;
-#endif // !SVM
 };
 
 } // namespace svm_gc

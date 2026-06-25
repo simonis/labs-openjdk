@@ -130,11 +130,11 @@ public:
 
   // Test if there is enough memory available in the old generation to accommodate this request.
   // The request will be subject to constraints on promotion and evacuation reserves.
-  bool can_allocate(const ShenandoahAllocRequest& req) const SVM_ONLY({ Unimplemented(); });
+  bool can_allocate(const ShenandoahAllocRequest& req) const;
 
   // Updates the promotion expenditure tracking and configures whether the plab may be used
   // for promotions and evacuations, or just evacuations.
-  void configure_plab_for_current_thread(const ShenandoahAllocRequest &req) SVM_ONLY({ Unimplemented(); });
+  void configure_plab_for_current_thread(const ShenandoahAllocRequest &req);
 
   // See description in field declaration
   void set_region_balance(ssize_t balance) { _region_balance = balance; }

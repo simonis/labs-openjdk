@@ -104,7 +104,6 @@ ShenandoahGC::ShenandoahDegenPoint ShenandoahConcurrentGC::degen_point() const {
   return _degen_point;
 }
 
-#ifndef SVM
 void ShenandoahConcurrentGC::entry_concurrent_update_refs_prepare(ShenandoahHeap* const heap) {
   NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
   const char* msg = conc_init_update_refs_event_message();
@@ -112,7 +111,7 @@ void ShenandoahConcurrentGC::entry_concurrent_update_refs_prepare(ShenandoahHeap
   EventMark em("%s", msg);
 
   // Evacuation is complete, retire gc labs and change gc state
-  heap->concurrent_prepare_for_update_refs();
+  NOT_SVM(heap->concurrent_prepare_for_update_refs();)
 }
 
 bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
@@ -208,7 +207,7 @@ bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
     entry_concurrent_update_refs_prepare(heap);
 
     // Perform update-refs phase.
-    if (ShenandoahVerify || ShenandoahPacing) {
+    if (ShenandoahVerify NOT_SVM(|| ShenandoahPacing)) {
       vmop_entry_init_update_refs();
     }
 
@@ -254,6 +253,7 @@ bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
 }
 
 bool ShenandoahConcurrentGC::complete_abbreviated_cycle() {
+#ifndef SVM
   shenandoah_assert_generational();
 
   ShenandoahGenerationalHeap* const heap = ShenandoahGenerationalHeap::heap();
@@ -295,6 +295,8 @@ bool ShenandoahConcurrentGC::complete_abbreviated_cycle() {
     heap->concurrent_final_roots(&complete_thread_local_satb_buffers);
     heap->old_generation()->concurrent_transfer_pointers_from_satb();
   }
+#endif // !SVM
+  Unimplemented();
   return true;
 }
 
@@ -331,7 +333,7 @@ void ShenandoahConcurrentGC::vmop_entry_init_update_refs() {
 
 void ShenandoahConcurrentGC::vmop_entry_final_update_refs() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
+  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());)
   ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::final_update_refs_gross);
 
   heap->try_inject_alloc_failure();
@@ -582,7 +584,7 @@ void ShenandoahConcurrentGC::entry_promote_in_place() const {
 
 void ShenandoahConcurrentGC::entry_update_thread_roots() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
+  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
 
   static const char* msg = "Concurrent update thread roots";
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_update_thread_roots);
@@ -632,9 +634,11 @@ void ShenandoahConcurrentGC::entry_reset_after_collect() {
 
 void ShenandoahConcurrentGC::op_reset() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
+#ifndef SVM
   if (ShenandoahPacing) {
     heap->pacer()->setup_for_reset();
   }
+#endif // !SVM
   // If it is old GC bootstrap cycle, always clear bitmap for global gen
   // to ensure bitmap for old gen is clear for old GC cycle after this.
   if (_do_old_gc_bootstrap) {
@@ -743,12 +747,14 @@ void ShenandoahConcurrentGC::op_init_mark() {
   OrderAccess::fence();
 
   // Arm nmethods for concurrent mark
-  ShenandoahCodeRoots::arm_nmethods_for_mark();
+  NOT_SVM(ShenandoahCodeRoots::arm_nmethods_for_mark();)
 
-  ShenandoahStackWatermark::change_epoch_id();
+  NOT_SVM(ShenandoahStackWatermark::change_epoch_id();)
+#ifndef SVM
   if (ShenandoahPacing) {
     heap->pacer()->setup_for_mark();
   }
+#endif // !SVM
 
   {
     ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::init_propagate_gc_state);
@@ -778,7 +784,7 @@ void ShenandoahConcurrentGC::op_final_mark() {
     assert(!heap->cancelled_gc(), "STW mark cannot OOM");
 
     // Notify JVMTI that the tagmap table will need cleaning.
-    JvmtiTagMap::set_needs_cleaning();
+    NOT_SVM(JvmtiTagMap::set_needs_cleaning();)
 
     // The collection set is chosen by prepare_regions_and_collection_set(). Additionally, certain parameters have been
     // established to govern the evacuation efforts that are about to begin.  Refer to comments on reserve members in
@@ -806,12 +812,14 @@ void ShenandoahConcurrentGC::op_final_mark() {
       heap->set_has_forwarded_objects(true);
 
       // Arm nmethods/stack for concurrent processing
-      ShenandoahCodeRoots::arm_nmethods_for_evac();
-      ShenandoahStackWatermark::change_epoch_id();
+      NOT_SVM(ShenandoahCodeRoots::arm_nmethods_for_evac();)
+      NOT_SVM(ShenandoahStackWatermark::change_epoch_id();)
 
+#ifndef SVM
       if (ShenandoahPacing) {
         heap->pacer()->setup_for_evac();
       }
+#endif // !SVM
     } else {
       if (ShenandoahVerify) {
         ShenandoahTimingsTracker v(ShenandoahPhaseTimings::final_mark_verify);
@@ -834,6 +842,7 @@ bool ShenandoahConcurrentGC::has_in_place_promotions(ShenandoahHeap* heap) {
   return heap->mode()->is_generational() && heap->old_generation()->has_in_place_promotions();
 }
 
+#ifndef SVM
 class ShenandoahConcurrentEvacThreadClosure : public ThreadClosure {
 private:
   OopClosure* const _oops;
@@ -864,13 +873,17 @@ public:
     _java_threads.threads_do(&thr_cl, worker_id);
   }
 };
+#endif // !SVM
 
 void ShenandoahConcurrentGC::op_thread_roots() {
+#ifndef SVM
   const ShenandoahHeap* const heap = ShenandoahHeap::heap();
   assert(heap->is_evacuation_in_progress(), "Checked by caller");
   ShenandoahGCWorkerPhase worker_phase(ShenandoahPhaseTimings::conc_thread_roots);
   ShenandoahConcurrentEvacUpdateThreadTask task(heap->workers()->active_workers());
   heap->workers()->run_task(&task);
+#endif // !SVM
+  Unimplemented();
 }
 
 void ShenandoahConcurrentGC::op_weak_refs() {
@@ -928,6 +941,7 @@ void ShenandoahEvacUpdateCleanupOopStorageRootsClosure::do_oop(narrowOop* p) {
   ShouldNotReachHere();
 }
 
+#ifndef SVM
 class ShenandoahIsCLDAliveClosure : public CLDClosure {
 public:
   void do_cld(ClassLoaderData* cld) {
@@ -1001,8 +1015,10 @@ public:
     }
   }
 };
+#endif // !SVM
 
 void ShenandoahConcurrentGC::op_weak_roots() {
+#ifndef SVM
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
   assert(heap->is_concurrent_weak_root_in_progress(), "Only during this phase");
   {
@@ -1024,6 +1040,8 @@ void ShenandoahConcurrentGC::op_weak_roots() {
     ShenandoahTimingsTracker t(ShenandoahPhaseTimings::conc_weak_roots_rendezvous);
     heap->rendezvous_threads("Shenandoah Concurrent Weak Roots");
   }
+#endif // !SVM
+  Unimplemented();
 }
 
 void ShenandoahConcurrentGC::op_class_unloading() {
@@ -1031,9 +1049,10 @@ void ShenandoahConcurrentGC::op_class_unloading() {
   assert (heap->is_concurrent_weak_root_in_progress() &&
           heap->unload_classes(),
           "Checked by caller");
-  heap->do_class_unloading();
+  NOT_SVM(heap->do_class_unloading();)
 }
 
+#ifndef SVM
 class ShenandoahEvacUpdateCodeCacheClosure : public NMethodClosure {
 private:
   BarrierSetNMethod* const                  _bs;
@@ -1098,13 +1117,17 @@ public:
     }
   }
 };
+#endif // !SVM
 
 void ShenandoahConcurrentGC::op_strong_roots() {
+#ifndef SVM
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
   assert(heap->is_concurrent_strong_root_in_progress(), "Checked by caller");
   ShenandoahConcurrentRootsEvacUpdateTask task(ShenandoahPhaseTimings::conc_strong_roots);
   heap->workers()->run_task(&task);
   heap->set_concurrent_strong_root_in_progress(false);
+#endif // !SVM
+  Unimplemented();
 }
 
 void ShenandoahConcurrentGC::op_cleanup_early() {
@@ -1124,9 +1147,11 @@ void ShenandoahConcurrentGC::op_init_update_refs() {
     ShenandoahTimingsTracker v(ShenandoahPhaseTimings::init_update_refs_verify);
     heap->verifier()->verify_before_update_refs();
   }
+#ifndef SVM
   if (ShenandoahPacing) {
     heap->pacer()->setup_for_update_refs();
   }
+#endif // !SVM
 }
 
 void ShenandoahConcurrentGC::op_update_refs() {
@@ -1238,6 +1263,7 @@ bool ShenandoahConcurrentGC::entry_final_roots() {
                               ShenandoahWorkerPolicy::calc_workers_for_conc_evac(),
                               msg);
 
+#ifndef SVM
   if (!heap->mode()->is_generational()) {
     heap->concurrent_final_roots();
   } else {
@@ -1245,6 +1271,8 @@ bool ShenandoahConcurrentGC::entry_final_roots() {
       return false;
     }
   }
+#endif // !SVM
+  Unimplemented();
   return true;
 }
 
@@ -1383,6 +1411,5 @@ const char* ShenandoahConcurrentGC::conc_init_update_refs_event_message() const 
     SHENANDOAH_RETURN_EVENT_MESSAGE(_generation->type(), "Concurrent Init Update Refs", "");
   }
 }
-#endif // !SVM
 
 } // namespace svm_gc

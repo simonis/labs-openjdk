@@ -1,5 +1,4 @@
 /*
- * Copyright (c) 2013, 2021, Red Hat, Inc. All rights reserved.
  * Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -23,13 +22,32 @@
  *
  */
 
-#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALCONTROLTHREAD_HPP
-#define SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALCONTROLTHREAD_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHOLDGC_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHOLDGC_HPP
 
 #include "gc/shared/gcCause.hpp"
-#include "gc/shenandoah/shenandoahController.hpp"
-#include "gc/shenandoah/shenandoahGC.hpp"
-#include "gc/shenandoah/shenandoahSharedVariables.hpp"
-#include "runtime/mutexLocker.hpp"
+#include "gc/shenandoah/shenandoahConcurrentGC.hpp"
+#include "gc/shenandoah/shenandoahVerifier.hpp"
 
-#endif // SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALCONTROLTHREAD_HPP
+namespace svm_gc {
+
+class ShenandoahOldGeneration;
+
+class ShenandoahOldGC : public ShenandoahConcurrentGC {
+ public:
+  ShenandoahOldGC(ShenandoahOldGeneration* generation, ShenandoahSharedFlag& allow_preemption);
+  bool collect(GCCause::Cause cause) override;
+
+ protected:
+  void op_final_mark() override;
+
+ private:
+  ShenandoahOldGeneration* _old_generation;
+  ShenandoahSharedFlag& _allow_preemption;
+};
+
+
+
+} // namespace svm_gc
+
+#endif //SHARE_GC_SHENANDOAH_SHENANDOAHOLDGC_HPP

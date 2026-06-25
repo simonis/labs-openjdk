@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
+ * Copyright Amazon.com Inc. or its affiliates. All Rights Reserved. *
+ * Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,11 +23,26 @@
  *
  */
 
-#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHPACER_INLINE_HPP
-#define SHARE_GC_SHENANDOAH_SHENANDOAHPACER_INLINE_HPP
 
-#include "gc/shenandoah/shenandoahPacer.hpp"
 
-#include "runtime/atomic.hpp"
+#include "gc/shenandoah/shenandoahCardStats.hpp"
+#include "logging/log.hpp"
 
-#endif // SHARE_GC_SHENANDOAH_SHENANDOAHPACER_INLINE_HPP
+namespace svm_gc {
+
+#ifndef PRODUCT
+void ShenandoahCardStats::log() const {
+  if (ShenandoahEnableCardStats) {
+    log_info(gc,remset)("Card stats: dirty %zu (max run: %zu),"
+      " clean %zu (max run: %zu),"
+      " dirty scans/objs %zu",
+      _dirty_card_cnt, _max_dirty_run,
+      _clean_card_cnt, _max_clean_run,
+      _dirty_scan_obj_cnt);
+  }
+}
+
+} // namespace svm_gc
+
+#endif // !PRODUCT
+

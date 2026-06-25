@@ -80,7 +80,6 @@ void VM_ShenandoahReferenceOperation::doit_epilogue() {
   Heap_lock->unlock();
 }
 
-#ifndef SVM
 void VM_ShenandoahInitMark::doit() {
   ShenandoahGCPauseMark mark(_gc_id, "Init Mark", SvcGCMarker::CONCURRENT);
   set_active_generation();
@@ -92,7 +91,6 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
   set_active_generation();
   _gc->entry_final_mark();
 }
-#endif // !SVM
 
 void VM_ShenandoahFullGC::doit() {
 #ifdef SVM
@@ -125,7 +123,6 @@ void VM_ShenandoahDegeneratedGC::doit() {
   _gc->entry_degenerated();
 }
 
-#ifndef SVM
 void VM_ShenandoahInitUpdateRefs::doit() {
   ShenandoahGCPauseMark mark(_gc_id, "Init Update Refs", SvcGCMarker::CONCURRENT);
   set_active_generation();
@@ -143,6 +140,5 @@ void VM_ShenandoahFinalRoots::doit() {
   set_active_generation();
   _gc->entry_verify_final_roots();
 }
-#endif // !SVM
 
 } // namespace svm_gc

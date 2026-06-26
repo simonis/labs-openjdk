@@ -127,6 +127,24 @@ void VMThread::execute(VM_Operation* op) {
     case VM_Operation::VMOp_ShenandoahDegeneratedGC:
       SVMGlobalData::_collect_degenerated_op(heap_base, isolate_thread, op_data, &wrapper_data);
       break;
+    case VM_Operation::VMOp_ShenandoahInitMark:
+      SVMGlobalData::_init_mark_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahFinalMarkStartEvac:
+      SVMGlobalData::_final_mark_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahInitUpdateRefs:
+      SVMGlobalData::_init_update_refs_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahFinalUpdateRefs:
+      SVMGlobalData::_final_update_refs_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahFinalRoots:
+      SVMGlobalData::_final_roots_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_HandshakeFallback:
+      SVMGlobalData::_handshake_fallback_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
     default:
       ShouldNotReachHere();
   }

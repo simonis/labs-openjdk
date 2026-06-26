@@ -197,6 +197,12 @@ struct SVMGlobalData {
   static queueVmOperationFunc _execute_pause_cleanup_op;
   static queueVmOperationFunc _collect_full_op;
   static queueVmOperationFunc _collect_degenerated_op;
+  static queueVmOperationFunc _init_mark_op;
+  static queueVmOperationFunc _final_mark_op;
+  static queueVmOperationFunc _init_update_refs_op;
+  static queueVmOperationFunc _final_update_refs_op;
+  static queueVmOperationFunc _final_roots_op;
+  static queueVmOperationFunc _handshake_fallback_op;
   static queueVmOperationFunc _verify_heap_op;
   static queueVmOperationFunc _try_initiate_conc_mark_op;
   static vmOperationStatusFunc _wait_for_vm_operation_execution_status;

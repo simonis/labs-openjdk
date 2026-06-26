@@ -43,6 +43,7 @@
   template(ShenandoahFinalUpdateRefs)             \
   template(ShenandoahFinalRoots)                  \
   template(ShenandoahDegeneratedGC)               \
+  template(HandshakeFallback)                     \
 
 #ifdef SVM_COMPRESSED_REFERENCES
 

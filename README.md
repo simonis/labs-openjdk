@@ -1,6 +1,6 @@
 # Overview
 
-This branch was originally based on the tag `25+37-jvmci-b04` of this repository and contains infrastructure that simplifies the integration of HotSpot garbage collectors into Native Image. The Shenandoah sources have meanwhile been updaetd on the HotSpot version on the tag `jdk-25.0.4+6`.
+This branch was originally based on the tag `25+37-jvmci-b04` of this repository and contains infrastructure that simplifies the integration of HotSpot garbage collectors into Native Image. The Shenandoah sources have meanwhile been updated on the HotSpot version on the tag `jdk-25.0.4+6`.
 
 ## Limitations
 
@@ -111,28 +111,53 @@ cd src/hotspot
 make -j16 build_debug_ur_so
 ```
 
-# Run
+## Run
 
 In order to run Native Image with Shenandoah, you need to use the [simonis/GR-70306](https://github.com/simonis/graal/tree/simonis/GR-70306) Graal branch (which is based on the Graal PR [[GR-70306] Add infrastructure for Shenandoah](https://github.com/oracle/graal/pull/12365)) and do the following:
 
-- Clone [https://github.com/simonis/graal](https://github.com/simonis/graal) and checkout the [simonis/GR-70306](https://github.com/simonis/graal/tree/simonis/GR-70306) branch.
-- Change into the `substratevm` directory: `cd graal/substratevm`
+- Clone [https://github.com/simonis/graal](https://github.com/simonis/graal).
+- Change into the `graal/` directory and checkout the [simonis/GR-70306](https://github.com/simonis/graal/tree/simonis/GR-70306) branch.
 - Set `JAVA_HOME` to a compatible JDK ([labs-openjdk](https://github.com/graalvm/labs-openjdk) at tag [`25+37-jvmci-b06`](https://github.com/graalvm/labs-openjdk/tree/25%2B37-jvmci-b06) is known to work)
-- Build the project: `MX_ALT_OUTPUT_ROOT=<directory> mx --components=ni build`
+- Make sure to have a version of `mx` on the `PATH` which corresponds to the version specified by the `mx_version` key in the `graal/common.json` file.
+- Build the project with: `mx --primary-suite=substratevm --components=ni,nju build` (the `nju` (native unit tests) component is only required if you want to run the native unit tests).
+  This will create a complete Native Image distribution under `./sdk/latest_graalvm_home` with the `native-image`
+  executable under `./sdk/latest_graalvm_home/bin/native-image`.
 - Build a native executable for a simple `HelloWorld` program (with `BUILD_ROOT` from the previous build step):
-  ```
-  $MX_ALT_OUTPUT_ROOT/sdk/linux-amd64/GRAALVM_50BA5489A0_JAVA25/graalvm-50ba5489a0-java25-25.1.0-dev/bin/native-image-ea \
+  ```shell
+  ./sdk/latest_graalvm_home/bin/native-image \
     -esa -g -O0 -H:+SourceLevelDebug -H:-DeleteLocalSymbols -H:+IncludeDebugHelperMethods \
-	--native-compiler-options=-L$BUILD_ROOT/labsjdk-GR-70066-dbg \
-	--native-compiler-options=-Wl,--unresolved-symbols=ignore-all \
-	--native-compiler-options=-Wl,--allow-shlib-undefined \
-	--gc=shenandoah -H:ShenandoahDebugLevel=debug --gc=shenandoah \
-	-o HelloWorld.exe HelloWorld
+    --native-compiler-options=-L$BUILD_ROOT \
+    --native-compiler-options=-Wl,--unresolved-symbols=ignore-all \
+    --native-compiler-options=-Wl,--allow-shlib-undefined \
+    --native-compiler-options=-fuse-ld=bfd \
+    --gc=shenandoah -H:ShenandoahDebugLevel=debug -R:ShenandoahGCMode=passive \
+    -o HelloWorld.exe HelloWorld
   ```
-- Run the native executable with: ` LD_LIBRARY_PATH=$BUILD_ROOT ./HelloWorld.exe -XX:ShenandoahGCMode=passive`
+- Run the native executable with: ` LD_LIBRARY_PATH=$BUILD_ROOT ./HelloWorld.exe`
 - It should run fine without any unexpected exceptions or crashes. If you detect any problems, please report :)
+- `-XX:ShenandoahGCMode=satb` is currently under development and not functional yet.
 
-The `--native-compiler-options=-Wl,--unresolved-symbols=ignore-all` is only required during development while `libshenandoahgc-debug-ur.so` can still contain undefined symbols (i.e. `nm -C -u libshenandoahgc-debug-ur.so | grep svm_gc` is not empty). `--native-compiler-options=-Wl,--allow-shlib-undefined` my be additionally required with older version of `gcc`/`ld` (e.g. `10.5.0`/`2.29.1`).
+The `--native-compiler-options=-Wl,--unresolved-symbols=ignore-all` is only required during development while `libshenandoahgc-debug-ur.so` can still contain undefined symbols (i.e. `nm -C -u libshenandoahgc-debug-ur.so | grep svm_gc` is not empty). `--native-compiler-options=-Wl,--allow-shlib-undefined` and/or `--native-compiler-options=-fuse-ld=bfd` my be additionally required with older version of `gcc`/`ld` (e.g. `10.5.0`/`2.29.1`).
+
+## Executing the Native JUnit tests
+
+- The Native Image JUnit tests can be run by executing: `mx --primary-suite=substratevm native-unittest`
+  This will run with SubstrateVM's default Serial GC.
+- The Native Image JUnit tests with the new Shenandoah GC from the `labs-openjdk/` repository and the `BUILD_ROOT` from the previous build step can be run by executing (make sure that `BUILD_ROOT`, i.e. the location of libshenandoah.so` is an absolute directory path!):
+  ```
+  LD_LIBRARY_PATH=$BUILD_ROOT \
+  NATIVE_IMAGE_OPTIONS="-H:-TraceVMOperations -R:-UsePerfData -H:+UseShenandoahGC -R:ShenandoahGCMode=passive \
+  --native-compiler-options=-Wl,--unresolved-symbols=ignore-all \
+  --native-compiler-options=-Wl,-L$BUILD_ROOT \
+  --native-compiler-options=-fuse-ld=bfd \
+  -R:ShenandoahGCMode=passive -H:ShenandoahDebugLevel=debug" \
+  mx --primary-suite=substratevm native-unittest
+  ```
+- With Shenandoah, 9 of the 189 native unit tests are known to fail:
+  ```
+  Tests run: 189,  Failures: 9
+  ```
+  These are the `com.oracle.svm.test.jfr.*` and `com.oracle.svm.test.nmt.*` because this functionality is not yet implemented for Shenandoah.
 
 ## Importing the Shenandoah implementation
 

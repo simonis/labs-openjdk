@@ -70,7 +70,8 @@ extern "C" {
       fetchThreadStackFramesFunc fetch_thread_stack_frames, freeThreadStackFramesFunc free_thread_stack_frames,
       fetchContinuationStackFramesFunc fetch_continuation_stack_frames, freeContinuationStackFramesFunc free_continuation_stack_frames,
       fetchCodeInfosFunc fetch_code_infos, freeCodeInfosFunc free_code_infos, cleanRuntimeCodeCacheFunc clean_runtime_code_cache,
-      threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm);
+      threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm,
+      threadsLockFunc lock_threads_read, threadsLockFunc unlock_threads_read);
 
   EXPORT_FOR_SVM void svm_gc_update_option_value(oop optionName, jlong value);
 
@@ -107,6 +108,16 @@ extern "C" {
   EXPORT_FOR_SVM void svm_gc_unpin_object(oop o);
 
   EXPORT_FOR_SVM void svm_gc_pre_write_barrier(oop obj);
+
+  EXPORT_FOR_SVM void svm_gc_pre_write_barrier_narrow(uintptr_t narrow_pre_val);
+
+  EXPORT_FOR_SVM oop svm_gc_load_reference_barrier(oop obj, void* load_addr);
+
+  EXPORT_FOR_SVM oop svm_gc_load_reference_barrier_weak(oop obj, void* load_addr);
+
+  EXPORT_FOR_SVM oop svm_gc_load_reference_barrier_phantom(oop obj, void* load_addr);
+
+  EXPORT_FOR_SVM void svm_gc_load_reference_barrier_heal(void* addr);
 
   EXPORT_FOR_SVM void svm_gc_post_write_barrier(void *card_addr);
 

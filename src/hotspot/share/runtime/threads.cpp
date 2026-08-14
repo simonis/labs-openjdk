@@ -1674,11 +1674,22 @@ StackFramesPerThread* Threads::set_java_stack_frames() {
     return nullptr;
   }
 
-  StackFramesPerThread *stack_frames = SVMGlobalData::_fetch_thread_stack_frames(CompressedOops::base(), JavaThread::current()->isolate_thread());
+  JavaThread* const current = JavaThread::current();
+  StackFramesPerThread *stack_frames = SVMGlobalData::_fetch_thread_stack_frames(CompressedOops::base(), current->isolate_thread());
+  // The SVM stack walker (NativeGCStackWalker.walkStack) emits the CURRENT thread's frames first and
+  // the remaining threads afterwards in isolate-thread-list order (VMThreads.firstThread/nextThread,
+  // skipping the current thread). JavaThreadIteratorWithHandle walks the SAME list order but does NOT
+  // put the current thread first. Assigning strictly by iterator index therefore gives (almost) every
+  // thread the WRONG stack frames, so a thread's real stack roots are missed (and another thread's are
+  // scanned twice). Mirror walkStack's ordering here: current thread gets threads[0], the rest follow
+  // in list order.
   size_t i = 0;
+  current->set_stack_frames(stack_frames->threads[i++]);
   for (JavaThreadIteratorWithHandle jtiwh; JavaThread *jt = jtiwh.next(); ) {
-    jt->set_stack_frames(stack_frames->threads[i]);
-    i++;
+    if (jt == current) {
+      continue;
+    }
+    jt->set_stack_frames(stack_frames->threads[i++]);
   }
   assert(i == stack_frames->count, "must be");
   return stack_frames;
@@ -1700,9 +1711,10 @@ void Threads::free_java_stack_frames(StackFramesPerThread *stack_frames) {
 }
 
 CodeInfosPerThread* Threads::set_java_code_infos() {
+  JavaThread* const current = JavaThread::current();
   CodeInfosPerThread *code_infos = nullptr;
   if (SVMGlobalData::_fetch_code_infos != nullptr) {
-    code_infos = SVMGlobalData::_fetch_code_infos(CompressedOops::base(), JavaThread::current()->isolate_thread());
+    code_infos = SVMGlobalData::_fetch_code_infos(CompressedOops::base(), current->isolate_thread());
   }
 
   if (code_infos == nullptr) {
@@ -1710,10 +1722,15 @@ CodeInfosPerThread* Threads::set_java_code_infos() {
       jt->set_code_infos(&JavaThread::_no_code_info_data);
     }
   } else {
+    // Mirror NativeGCStackWalker.walkStack's ordering: the current thread's code infos come first,
+    // the remaining threads follow in isolate-thread-list order (see set_java_stack_frames).
     size_t i = 0;
+    current->set_code_infos(code_infos->threads[i++]);
     for (JavaThreadIteratorWithHandle jtiwh; JavaThread *jt = jtiwh.next(); ) {
-      jt->set_code_infos(code_infos->threads[i]);
-      i++;
+      if (jt == current) {
+        continue;
+      }
+      jt->set_code_infos(code_infos->threads[i++]);
     }
     assert(i == code_infos->count, "must be");
   }

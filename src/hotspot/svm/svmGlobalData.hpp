@@ -218,6 +218,8 @@ struct SVMGlobalData {
   static threadStateTransitionFunc _transition_vm_to_native;
   static fastThreadStateTransitionFunc _try_fast_transition_native_to_vm;
   static threadStateTransitionFunc _slow_transition_native_to_vm;
+  static threadsLockFunc _lock_threads_read;
+  static threadsLockFunc _unlock_threads_read;
 
   static void initialize_offsets(char *offsets, int offsets_length);
   static void verify_offsets(bool perf_data_support);

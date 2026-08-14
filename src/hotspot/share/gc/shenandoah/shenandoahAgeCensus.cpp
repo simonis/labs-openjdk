@@ -390,6 +390,6 @@ void ShenandoahNoiseStats::print(LogStream& ls, const size_t total) {
   }
 }
 
-} // namespace svm_gc
-
 #endif // SHENANDOAH_CENSUS_NOISE
+
+} // namespace svm_gc

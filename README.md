@@ -56,7 +56,7 @@ In addition, there are several large conceptual differences between Native Image
 - **VM Operations & Safepoints:** The VM operation thread in Native Image is a Java thread.
   So, the handling of VM operations and safepoints is implemented completely differently than on HotSpot.
 - **Locking:** Only a subset of the HotSpot locks is used.
-  However, more locks must be accessible to Java threads because the VM operation thread is a Java thread. 
+  However, more locks must be accessible to Java threads because the VM operation thread is a Java thread.
 - **Exception Handling:** Java exception support was entirely removed from the C++ code.
   For example, when the Java heap runs out of memory, the `OutOfMemoryError` must be thrown on the Native Image side (and not by the C++ code).
 - **JIT-Compiled Code:** The lifecycle and handling of JIT compiled code (`nmethods`) are fundamentally different between Native Image and HotSpot.
@@ -122,22 +122,24 @@ In order to run Native Image with Shenandoah, you need to use the [simonis/GR-70
 - Build the project with: `mx --primary-suite=substratevm --components=ni,nju build` (the `nju` (native unit tests) component is only required if you want to run the native unit tests).
   This will create a complete Native Image distribution under `./sdk/latest_graalvm_home` with the `native-image`
   executable under `./sdk/latest_graalvm_home/bin/native-image`.
-- Build a native executable for a simple `HelloWorld` program (with `BUILD_ROOT` from the previous build step):
+- Build a native executable for a simple `HelloWorld` program (with `BUILD_ROOT` from the previous [build](#build) step which built `libshenandoah.so`):
   ```shell
   ./sdk/latest_graalvm_home/bin/native-image \
     -esa -g -O0 -H:+SourceLevelDebug -H:-DeleteLocalSymbols -H:+IncludeDebugHelperMethods \
     --native-compiler-options=-L$BUILD_ROOT \
-    --native-compiler-options=-Wl,--unresolved-symbols=ignore-all \
-    --native-compiler-options=-Wl,--allow-shlib-undefined \
-    --native-compiler-options=-fuse-ld=bfd \
-    --gc=shenandoah -H:ShenandoahDebugLevel=debug -R:ShenandoahGCMode=passive \
+    --gc=shenandoah -H:ShenandoahDebugLevel=product \
     -o HelloWorld.exe HelloWorld
   ```
 - Run the native executable with: ` LD_LIBRARY_PATH=$BUILD_ROOT ./HelloWorld.exe`
 - It should run fine without any unexpected exceptions or crashes. If you detect any problems, please report :)
-- `-XX:ShenandoahGCMode=satb` is currently under development and not functional yet.
 
-The `--native-compiler-options=-Wl,--unresolved-symbols=ignore-all` is only required during development while `libshenandoahgc-debug-ur.so` can still contain undefined symbols (i.e. `nm -C -u libshenandoahgc-debug-ur.so | grep svm_gc` is not empty). `--native-compiler-options=-Wl,--allow-shlib-undefined` and/or `--native-compiler-options=-fuse-ld=bfd` my be additionally required with older version of `gcc`/`ld` (e.g. `10.5.0`/`2.29.1`).
+`-H:ShenandoahDebugLevel=` can be one of `product`, `debug` or `fastdebug` and will search for the corresponding version of Shenandoah (i.e. `libshenandoahgc-ur.so`, `libshenandoahgc-debug-ur.so` or `libshenandoahgc-fastdebug-ur.so`) in `$BUILD_ROOT`.
+
+## Status
+
+As of August 2026, Shenandoah is known to correctly execute (with both `-XX:ShenandoahGCMode=passive` and the default `-XX:ShenandoahGCMode=satb`(only on x86_64)) the [Renaissance Benchmark Suite](https://github.com/simonis/RenaissanceNI) and SpecJBB. If you encounter eny issues, please report here.
+
+We are currently working on supporting `-XX:ShenandoahGCMode=satb` on aarch64 as well.Generational Shenandoah support will also be available soon.
 
 ## Executing the Native JUnit tests
 
@@ -146,11 +148,7 @@ The `--native-compiler-options=-Wl,--unresolved-symbols=ignore-all` is only requ
 - The Native Image JUnit tests with the new Shenandoah GC from the `labs-openjdk/` repository and the `BUILD_ROOT` from the previous build step can be run by executing (make sure that `BUILD_ROOT`, i.e. the location of libshenandoah.so` is an absolute directory path!):
   ```
   LD_LIBRARY_PATH=$BUILD_ROOT \
-  NATIVE_IMAGE_OPTIONS="-H:-TraceVMOperations -R:-UsePerfData -H:+UseShenandoahGC -R:ShenandoahGCMode=passive \
-  --native-compiler-options=-Wl,--unresolved-symbols=ignore-all \
-  --native-compiler-options=-Wl,-L$BUILD_ROOT \
-  --native-compiler-options=-fuse-ld=bfd \
-  -R:ShenandoahGCMode=passive -H:ShenandoahDebugLevel=debug" \
+  NATIVE_IMAGE_OPTIONS="-H:-TraceVMOperations -R:-UsePerfData -H:+UseShenandoahGC
   mx --primary-suite=substratevm native-unittest
   ```
 - With Shenandoah, 9 of the 189 native unit tests are known to fail:

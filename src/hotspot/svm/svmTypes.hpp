@@ -49,6 +49,9 @@ typedef void*(*freeCodeInfosFunc)(address, IsolateThread*, CodeInfosPerThread*);
 typedef void*(*threadStateTransitionFunc)(IsolateThread*);
 typedef bool*(*fastThreadStateTransitionFunc)(IsolateThread*);
 typedef void(*cleanRuntimeCodeCacheFunc)(address, IsolateThread*);
+// Acquire/release the SVM ThreadsLock (unspecified-owner read access) from GC C++ code.
+// The IsolateThread argument is null (the caller is an unattached GC thread).
+typedef void(*threadsLockFunc)(address, IsolateThread*);
 
 // The following two enums must be kept in sync with the corresponding constants in
 // com.oracle.svm.core.gc.shenandoah.ShenandoahRegionType on the SubstrateVM side.

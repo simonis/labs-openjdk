@@ -137,8 +137,18 @@ ShenandoahConcurrentMark::ShenandoahConcurrentMark(ShenandoahGeneration* generat
 template <ShenandoahGenerationType GENERATION>
 class ShenandoahMarkConcurrentRootsTask : public WorkerTask {
 private:
-  SuspendibleThreadSetJoiner          _sts_joiner;
+  // The STS joiner is only required when this task runs concurrently. On SVM the
+  // task instead runs during the init mark safepoint, where joining the
+  // suspendible thread set is neither needed nor allowed (it would deadlock).
+  NOT_SVM(SuspendibleThreadSetJoiner  _sts_joiner;)
   NOT_SVM(ShenandoahConcurrentRootScanner     _root_scanner;)
+  // On SVM the thread stack frames cannot be walked concurrently because the SVM stack walker
+  // (NativeGCStackWalker.walkStack, reached via _fetch_thread_stack_frames) walks EVERY thread's stack
+  // from the GC/VM thread, which requires the other threads to be stopped, i.e. at a global safepoint.
+  // True concurrent thread-root scanning would need a per-thread handshake so each thread walks its OWN
+  // stack, plus a stack-watermark load barrier for consistency - neither of which SVM currently has.
+  // So this task is instead run during the init mark safepoint using the STW root scanner.
+  SVM_ONLY(ShenandoahSTWRootScanner   _root_scanner;)
   ShenandoahObjToScanQueueSet* const  _queue_set;
   ShenandoahObjToScanQueueSet* const  _old_queue_set;
   ShenandoahReferenceProcessor* const _rp;
@@ -161,6 +171,8 @@ ShenandoahMarkConcurrentRootsTask<GENERATION>::ShenandoahMarkConcurrentRootsTask
   WorkerTask("Shenandoah Concurrent Mark Roots"),
 #ifndef SVM
   _root_scanner(nworkers, phase),
+#else
+  _root_scanner(phase),
 #endif // !SVM
   _queue_set(qs),
   _old_queue_set(old),
@@ -175,7 +187,7 @@ void ShenandoahMarkConcurrentRootsTask<GENERATION>::work(uint worker_id) {
   ShenandoahObjToScanQueue* old_q = (_old_queue_set == nullptr) ?
           nullptr : _old_queue_set->queue(worker_id);
   ShenandoahMarkRefsClosure<GENERATION> cl(q, _rp, old_q);
-  NOT_SVM(_root_scanner.roots_do(&cl, worker_id);)
+  _root_scanner.roots_do(&cl, worker_id);
 }
 
 void ShenandoahConcurrentMark::mark_concurrent_roots() {

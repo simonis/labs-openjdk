@@ -802,7 +802,6 @@ ShenandoahMarkingContext* ShenandoahGeneration::complete_marking_context() {
 }
 
 void ShenandoahGeneration::cancel_marking() {
-#ifndef SVM
   log_info(gc)("Cancel marking: %s", name());
   if (is_concurrent_mark_in_progress()) {
     set_mark_incomplete();
@@ -810,8 +809,6 @@ void ShenandoahGeneration::cancel_marking() {
   _task_queues->clear();
   ref_processor()->abandon_partial_discovery();
   set_concurrent_mark_in_progress(false);
-#endif // !SVM
-  Unimplemented();
 }
 
 ShenandoahGeneration::ShenandoahGeneration(ShenandoahGenerationType type,

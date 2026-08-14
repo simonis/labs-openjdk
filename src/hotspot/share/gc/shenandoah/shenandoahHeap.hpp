@@ -44,9 +44,13 @@
 #include "gc/shenandoah/shenandoahSharedVariables.hpp"
 #include "gc/shenandoah/shenandoahUnload.hpp"
 #include "memory/metaspace.hpp"
+#include "oops/compressedOops.hpp"
 #include "services/memoryManager.hpp"
 #include "utilities/globalDefinitions.hpp"
 #include "utilities/stack.hpp"
+#ifdef SVM
+#include "svmGlobalData.hpp"
+#endif
 
 namespace svm_gc {
 
@@ -503,10 +507,8 @@ private:
   // Retires LABs used for evacuation
   void concurrent_prepare_for_update_refs();
 
-#ifndef SVM
   // Turn off weak roots flag, purge old satb buffers in generational mode
   void concurrent_final_roots(HandshakeClosure* handshake_closure = nullptr);
-#endif // !SVM
 
   virtual void update_heap_references(bool concurrent);
   // Final update region states
@@ -891,6 +893,33 @@ private:
   void try_inject_alloc_failure();
   bool should_inject_alloc_failure();
 };
+
+#ifdef SVM
+// Serializes concurrent (outside-of-safepoint) GC-state transitions with thread attach/detach,
+// mirroring HotSpot's use of the Threads_lock around ShenandoahHeap::set_gc_state_concurrent.
+// On HotSpot this holds the Threads_lock. On SVM it holds the SVM-side ThreadsLock with
+// (unspecified-owner) read access, which is mutually exclusive with the write access an attaching
+// thread holds while it is added to the thread list and its per-thread GC state is initialized
+// (see ShenandoahBarrierSet::on_thread_attach). This guarantees an attaching thread cannot observe
+// a global _gc_state that is being modified concurrently.
+// NOTE (SVM): must NOT be used on paths reached while the current thread already holds the SVM
+// ThreadsLock with write access (e.g. heap initialization / ShenandoahHeap::post_initialize, which
+// runs while the first thread holds write access): read access is not reentrant with write access
+// held by the same thread and would deadlock.
+class ShenandoahThreadsLocker : public StackObj {
+public:
+  ShenandoahThreadsLocker(){
+    // Acquire the SVM ThreadsLock with (unspecified-owner) read access. Attaching threads hold this
+    // lock with write access while they are added to the thread list and their per-thread GC state is
+    // initialized (ShenandoahBarrierSet::on_thread_attach), so this serializes concurrent GC-state
+    // changes with thread attach, like HotSpot's Threads_lock. See NativeGCThreadsLock on the SVM side.
+    SVMGlobalData::_lock_threads_read((address) CompressedOops::base(), nullptr);
+  }
+  ~ShenandoahThreadsLocker() {
+    SVMGlobalData::_unlock_threads_read((address) CompressedOops::base(), nullptr);
+  }
+};
+#endif // SVM
 
 } // namespace svm_gc
 

@@ -697,6 +697,11 @@ void ShenandoahHeap::post_initialize() {
 
 #ifndef SVM
   MutexLocker ml(Threads_lock);
+#else
+  // Do NOT use ShenandoahThreadsLocker here: post_initialize runs during isolate creation, while
+  // the first thread still holds the SVM ThreadsLock with write access (see ShenandoahHeap.java,
+  // "Only the first thread may initialize the heap"). Acquiring read access here would deadlock.
+  // That write access already provides the mutual exclusion the Threads_lock provides on HotSpot.
 #endif
 
   ShenandoahInitWorkerGCLABClosure init_gclabs;
@@ -1337,14 +1342,19 @@ void ShenandoahHeap::evacuate_collection_set(bool concurrent) {
   workers()->run_task(&task);
 }
 
-#ifndef SVM
 void ShenandoahHeap::concurrent_prepare_for_update_refs() {
   {
+#ifndef SVM
     // Java threads take this lock while they are being attached and added to the list of threads.
     // If another thread holds this lock before we update the gc state, it will receive a stale
     // gc state, but they will have been added to the list of java threads and so will be corrected
     // by the following handshake.
     MutexLocker lock(Threads_lock);
+#else
+    // On SVM, ShenandoahThreadsLocker holds the SVM ThreadsLock (read access), which attaching
+    // threads hold with write access, giving the same mutual exclusion.
+    ShenandoahThreadsLocker lock;
+#endif // !SVM
 
     // A cancellation at this point means the degenerated cycle must resume from update-refs.
     set_gc_state_concurrent(EVACUATION, false);
@@ -1355,8 +1365,21 @@ void ShenandoahHeap::concurrent_prepare_for_update_refs() {
   // This will propagate the gc state and retire gclabs and plabs for threads that require it.
   ShenandoahPrepareForUpdateRefs prepare_for_update_refs(_gc_state.raw_value());
 
+#ifndef SVM
   // The handshake won't touch worker threads (or control thread, or VM thread), so do those separately.
   Threads::non_java_threads_do(&prepare_for_update_refs);
+#else
+  // On SVM the non-Java threads cannot be iterated via Threads::non_java_threads_do
+  // outside of a safepoint. The GC worker threads, however, can be visited directly
+  // (they are idle between tasks at this point). This is essential: it retires their
+  // evacuation GCLABs so that the regions filled during evacuation (whose update
+  // watermark was advanced to top) become parsable for the concurrent update-references
+  // heap walk. It also propagates the new gc state to the worker threads.
+  workers()->threads_do(&prepare_for_update_refs);
+  if (safepoint_workers() != nullptr) {
+    safepoint_workers()->threads_do(&prepare_for_update_refs);
+  }
+#endif // !SVM
 
   // Now retire gclabs and plabs and propagate gc_state for mutator threads
   Handshake::execute(&prepare_for_update_refs);
@@ -1382,12 +1405,22 @@ void ShenandoahHeap::concurrent_final_roots(HandshakeClosure* handshake_closure)
 
   {
     assert(!is_evacuation_in_progress(), "Should not evacuate for abbreviated or old cycles");
+#ifndef SVM
     MutexLocker lock(Threads_lock);
+#else
+    ShenandoahThreadsLocker lock;
+#endif // !SVM
     set_gc_state_concurrent(WEAK_ROOTS, false);
   }
 
   ShenandoahGCStatePropagator propagator(_gc_state.raw_value());
+#ifndef SVM
+  // On SVM the (non-Java) worker/VM threads cannot be iterated outside of a
+  // safepoint. Their gc state is refreshed at the next safepoint (e.g. the init
+  // mark of the following cycle). The mutator (Java) threads are updated by the
+  // handshake below, which on SVM is itself implemented as a safepoint operation.
   Threads::non_java_threads_do(&propagator);
+#endif // !SVM
   if (handshake_closure == nullptr) {
     Handshake::execute(&propagator);
   } else {
@@ -1395,7 +1428,6 @@ void ShenandoahHeap::concurrent_final_roots(HandshakeClosure* handshake_closure)
     Handshake::execute(&composite);
   }
 }
-#endif // !SVM
 
 oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
   assert(thread == Thread::current(), "Expected thread parameter to be current thread.");
@@ -1702,7 +1734,12 @@ bool ShenandoahHeap::block_is_obj(const HeapWord* addr) const {
 }
 
 bool ShenandoahHeap::print_location(outputStream* st, void* addr) const {
+#ifndef SVM
   return BlockLocationPrinter<ShenandoahHeap>::print_location(st, addr);
+#else
+  // SVM-TODO: implement BlockLocationPrinter<ShenandoahHeap>::print_location.
+  return false;
+#endif // !SVM
 }
 
 void ShenandoahHeap::prepare_for_verify() {
@@ -2227,7 +2264,11 @@ void ShenandoahHeap::set_gc_state_concurrent(uint mask, bool value) {
   // safepoint).
 #ifndef SVM
   assert(Threads_lock->is_locked(), "Must hold thread lock for concurrent gc state change");
-#endif
+#else
+  // On SVM the caller must hold the SVM ThreadsLock with read access (via ShenandoahThreadsLocker),
+  // which excludes attaching threads (they hold write access) in the same way. This cannot be
+  // asserted here because the unspecified-owner read access does not track ownership.
+#endif // !SVM
   _gc_state.set_cond(mask, value);
 }
 

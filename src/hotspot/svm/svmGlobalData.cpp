@@ -91,6 +91,8 @@ cleanRuntimeCodeCacheFunc SVMGlobalData::_clean_runtime_code_cache = nullptr;
 threadStateTransitionFunc SVMGlobalData::_transition_vm_to_native = nullptr;
 fastThreadStateTransitionFunc SVMGlobalData::_try_fast_transition_native_to_vm = nullptr;
 threadStateTransitionFunc SVMGlobalData::_slow_transition_native_to_vm = nullptr;
+threadsLockFunc SVMGlobalData::_lock_threads_read = nullptr;
+threadsLockFunc SVMGlobalData::_unlock_threads_read = nullptr;
 
 void SVMGlobalData::initialize_offsets(char *offsets, int offsets_length) {
   guarantee(offsets_length == sizeof(SVMOffsets), "must match");

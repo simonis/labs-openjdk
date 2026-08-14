@@ -33,8 +33,10 @@
 #include "gc/shared/collectedHeap.inline.hpp"
 #include "gc/shared/gcArguments.hpp"
 #include "gc/shared/gcCause.hpp"
+#include "gc/shenandoah/shenandoahBarrierSet.inline.hpp"
 #include "logging/logConfiguration.hpp"
 #include "oops/arrayKlass.inline.hpp"
+#include "oops/compressedOops.inline.hpp"
 #include "oops/instanceKlass.hpp"
 #include "oops/instanceStackChunkKlass.hpp"
 #include "oops/instancePodKlass.hpp"
@@ -156,7 +158,8 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
     vmOperationDataFunc is_vm_operation_finished, fetchThreadStackFramesFunc fetch_thread_stack_frames, freeThreadStackFramesFunc free_thread_stack_frames,
     fetchContinuationStackFramesFunc fetch_continuation_stack_frames, freeContinuationStackFramesFunc free_continuation_stack_frames,
     fetchCodeInfosFunc fetch_code_infos, freeCodeInfosFunc free_code_infos, cleanRuntimeCodeCacheFunc clean_runtime_code_cache,
-    threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm) {
+    threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm,
+    threadsLockFunc lock_threads_read, threadsLockFunc unlock_threads_read) {
   assert(isolate_thread->has_status_created(), "unexpected thread state");
   guarantee(SVMIsolateData::_heap_base == nullptr, "GC doesn't support multiple isolates at the moment.");
 
@@ -203,6 +206,8 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   guarantee(transition_vm_to_native != nullptr, "must be");
   guarantee(fast_transition_native_to_vm != nullptr, "must be");
   guarantee(slow_transition_native_to_vm != nullptr, "must be");
+  guarantee(lock_threads_read != nullptr, "must be");
+  guarantee(unlock_threads_read != nullptr, "must be");
   guarantee(dynamic_hub_hashing_interface_mask == DynamicHubHashingInterfaceMask, "must be");
   guarantee(dynamic_hub_hashing_shift_offset == DynamicHubHashingShiftOffset, "must be");
 
@@ -245,6 +250,8 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   SVMGlobalData::_transition_vm_to_native = transition_vm_to_native;
   SVMGlobalData::_try_fast_transition_native_to_vm = fast_transition_native_to_vm;
   SVMGlobalData::_slow_transition_native_to_vm = slow_transition_native_to_vm;
+  SVMGlobalData::_lock_threads_read = lock_threads_read;
+  SVMGlobalData::_unlock_threads_read = unlock_threads_read;
   SVMGlobalData::_clean_runtime_code_cache = clean_runtime_code_cache;
   SVMGlobalData::initialize_offsets(offsets, offsets_length);
   SVMGlobalData::verify_offsets(perf_data_support);
@@ -283,6 +290,11 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
     // return a data structure with relevant offsets and constants (some of the values depend on the VM arguments)
     // TODO: 'card_table_offset' is not constant in Shenandoah (see JDK-8343468)
     shenandoah_init_state.card_table_address = nullptr; //(address)ci_card_table_address();
+    // Base of the Shenandoah collection-set fast-test map (biased by heap_base >> region_shift, so it
+    // is indexed directly by object_address >> region_shift). Allocated once with the heap, so the
+    // base is stable for the isolate's lifetime; the compiled CAS heal barrier uses it to skip the
+    // heal stub for references that are not in the collection set. See svm_gc_load_reference_barrier_heal.
+    shenandoah_init_state.cset_fast_test_address = (void*) ShenandoahHeap::in_cset_fast_test_addr();
     shenandoah_init_state.tlab_top_offset = in_bytes(Thread::tlab_top_offset());
     shenandoah_init_state.tlab_end_offset = in_bytes(Thread::tlab_end_offset());
     shenandoah_init_state.card_table_shift = CardTable::card_shift();
@@ -290,6 +302,15 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
     shenandoah_init_state.java_thread_size = sizeof(JavaThread);
     shenandoah_init_state.vm_operation_data_size = sizeof(VM_OperationData);
     shenandoah_init_state.vm_operation_wrapper_data_size = sizeof(VM_OperationWrapperData);
+    // Offsets of the SATB mark queue's index and buffer fields, relative to the per-thread gc_state
+    // byte (which the generated barrier addresses via ShenandoahHeap.javaThreadTL). Used by the
+    // inlined SATB pre-write barrier's buffer write; validated against ShenandoahConstants at startup.
+    shenandoah_init_state.satb_index_offset =
+        in_bytes(ShenandoahThreadLocalData::satb_mark_queue_index_offset()) - in_bytes(ShenandoahThreadLocalData::gc_state_offset());
+    shenandoah_init_state.satb_buffer_offset =
+        in_bytes(ShenandoahThreadLocalData::satb_mark_queue_buffer_offset()) - in_bytes(ShenandoahThreadLocalData::gc_state_offset());
+    shenandoah_init_state.mark_offset = oopDesc::mark_offset_in_bytes();
+    shenandoah_init_state.gc_state_offset = in_bytes(ShenandoahThreadLocalData::gc_state_offset());
     shenandoah_init_state.dirty_card_value = CardTable::dirty_card_val();
     return &shenandoah_init_state;
   }
@@ -495,10 +516,135 @@ EXPORT_FOR_SVM void svm_gc_unpin_object(oop o) {
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
 EXPORT_FOR_SVM void svm_gc_pre_write_barrier(oop obj) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  assert(Universe::heap()->is_in(obj), "must be in the available part of the heap");
+  // This may run very early during isolate creation, before the GC (and its barrier set) has
+  // been installed. No GC can be in progress at that point, so there is nothing to do.
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return;
+  }
+  // satb_enqueue() internally checks whether SATB marking is active and whether 'obj' is
+  // non-null. 'obj' is the previous (uncompressed) value of the reference field being overwritten.
+  ShenandoahBarrierSet::barrier_set()->satb_enqueue(obj);
+}
 
-  Unimplemented();
+// SATB pre-write barrier variant that receives the previous value as a compressed
+// (narrow) reference. Used by generated code so that it does not have to decode
+// compressed references inline. The argument is pointer-width so that it can carry a
+// full-width narrow reference: with isolates but without size-reducing compression
+// (Graal CE) narrowOop is 8 bytes (a heap-base-relative offset), while with size-reducing
+// compressed references (SVM_COMPRESSED_REFERENCES) narrowOop is 4 bytes and the value is
+// simply zero-extended into the pointer-width argument.
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM void svm_gc_pre_write_barrier_narrow(uintptr_t narrow_pre_val) {
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return;
+  }
+  // Only decode/enqueue the previous value while concurrent marking is actually in progress
+  // (this mirrors the guard inside satb_enqueue()). Outside of marking the enqueue would be a
+  // no-op anyway, and the narrow word may hold uninitialized/non-reference data that would trip
+  // the debug "object not in heap" assertion inside CompressedOops::decode().
+  if (!ShenandoahHeap::heap()->is_concurrent_mark_in_progress()) {
+    return;
+  }
+  oop pre_val = CompressedOops::decode((narrowOop) narrow_pre_val);
+  ShenandoahBarrierSet::barrier_set()->satb_enqueue(pre_val);
+}
+
+// Load-reference barrier. 'obj' is the (uncompressed) reference that was just loaded.
+// Returns the canonical (to-space) reference. load_reference_barrier() internally
+// checks whether a barrier is actually required and returns 'obj' unchanged otherwise.
+// It only touches the current thread when evacuation is in progress, so it is safe to
+// call before the calling thread has been attached to the GC (early isolate creation).
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM oop svm_gc_load_reference_barrier(oop obj, void* load_addr) {
+  // See svm_gc_pre_write_barrier: the barrier set may not be installed yet during early
+  // isolate creation, in which case no objects are forwarded and there is nothing to do.
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return obj;
+  }
+  // Canonicalize 'obj' to its to-space location AND self-heal the memory location it was loaded
+  // from (if known): the decorated barrier CAS-updates *load_addr from the stale from-space value
+  // to the to-space value, so subsequent loads of the same slot take the inline fast path instead
+  // of calling this stub again. This mirrors HotSpot's two-argument LRB runtime entries
+  // (ShenandoahRuntime::load_reference_barrier_strong(oop, oop*)). 'load_addr' may be null when
+  // the load location is unknown; the barrier then only canonicalizes the value.
+  ShenandoahBarrierSet* const bs = ShenandoahBarrierSet::barrier_set();
+  if (UseCompressedOops) {
+    return bs->load_reference_barrier(ON_STRONG_OOP_REF, obj, reinterpret_cast<narrowOop*>(load_addr));
+  } else {
+    return bs->load_reference_barrier(ON_STRONG_OOP_REF, obj, reinterpret_cast<oop*>(load_addr));
+  }
+}
+
+// Load-reference barrier for a referent loaded from a WEAK reference (java.lang.ref.Reference.get,
+// Reference.refersTo on WeakReference, etc.). In addition to canonicalizing a from-space pointer
+// (and self-healing the load location like the strong variant above), it must NOT resurrect an
+// unreachable referent: during the concurrent weak-roots phase (after marking decided liveness,
+// before the reference processor has cleared dead referents) a load of an unmarked referent returns
+// null, exactly like the decorated C++ barrier (ON_WEAK_OOP_REF). Without this, a mutator could
+// obtain a strong reference to an unmarked collection-set object, store it into a live object, and
+// leave a dangling reference once the collection set is recycled (the object was never evacuated
+// because it was never marked).
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM oop svm_gc_load_reference_barrier_weak(oop obj, void* load_addr) {
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return obj;
+  }
+  ShenandoahBarrierSet* const bs = ShenandoahBarrierSet::barrier_set();
+  if (UseCompressedOops) {
+    return bs->load_reference_barrier(ON_WEAK_OOP_REF, obj, reinterpret_cast<narrowOop*>(load_addr));
+  } else {
+    return bs->load_reference_barrier(ON_WEAK_OOP_REF, obj, reinterpret_cast<oop*>(load_addr));
+  }
+}
+
+// Same as svm_gc_load_reference_barrier_weak, but for PHANTOM strength (Reference.refersTo on
+// phantom references and weak-native accesses): dead referents are filtered with is_marked (any
+// strength) rather than is_marked_strong.
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM oop svm_gc_load_reference_barrier_phantom(oop obj, void* load_addr) {
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return obj;
+  }
+  ShenandoahBarrierSet* const bs = ShenandoahBarrierSet::barrier_set();
+  if (UseCompressedOops) {
+    return bs->load_reference_barrier(ON_PHANTOM_OOP_REF, obj, reinterpret_cast<narrowOop*>(load_addr));
+  } else {
+    return bs->load_reference_barrier(ON_PHANTOM_OOP_REF, obj, reinterpret_cast<oop*>(load_addr));
+  }
+}
+
+// Self-healing load-reference barrier for a reference field that is about to be atomically updated
+// (compare-and-swap / getAndSet). Reads the current field value at 'addr', resolves it to its
+// canonical (to-space) location and - if it was a from-space pointer - CAS-heals the field in place,
+// so that a subsequent PLAIN atomic sees the to-space value and cannot suffer a concurrent-evacuation
+// false negative (which would otherwise leave a stale from-space pointer in the field). This mirrors
+// HotSpot's "fix up early" atomic barrier model (JDK-8384080 / JDK-8383810). It is only invoked on the
+// slow path, i.e. when the heap has forwarded objects (evacuation / update-refs in progress).
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM void svm_gc_load_reference_barrier_heal(void* addr) {
+  // See svm_gc_load_reference_barrier: the barrier set may not be installed yet during early
+  // isolate creation, in which case no objects are forwarded and there is nothing to do.
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return;
+  }
+  ShenandoahBarrierSet* const bs = ShenandoahBarrierSet::barrier_set();
+  if (UseCompressedOops) {
+    narrowOop* const p = reinterpret_cast<narrowOop*>(addr);
+    narrowOop v = *p;
+    if (CompressedOops::is_null(v)) {
+      return;
+    }
+    // The field holds a live reference (from-space or to-space); decode and canonicalize+heal it.
+    oop obj = CompressedOops::decode_not_null(v);
+    bs->load_reference_barrier(ON_STRONG_OOP_REF, obj, p);
+  } else {
+    oop* const p = reinterpret_cast<oop*>(addr);
+    oop obj = *p;
+    if (obj == nullptr) {
+      return;
+    }
+    bs->load_reference_barrier(ON_STRONG_OOP_REF, obj, p);
+  }
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.

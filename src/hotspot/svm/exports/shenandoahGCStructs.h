@@ -43,6 +43,7 @@ struct ShenandoahHeapOptions {
 
 struct ShenandoahInitState {
   void* card_table_address;
+  void* cset_fast_test_address;
   int tlab_top_offset;
   int tlab_end_offset;
   int card_table_shift;
@@ -50,6 +51,10 @@ struct ShenandoahInitState {
   int java_thread_size;
   int vm_operation_data_size;
   int vm_operation_wrapper_data_size;
+  int satb_index_offset;
+  int satb_buffer_offset;
+  int mark_offset;
+  int gc_state_offset;
   char dirty_card_value;
 };
 

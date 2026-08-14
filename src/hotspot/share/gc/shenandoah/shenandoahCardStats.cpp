@@ -42,7 +42,7 @@ void ShenandoahCardStats::log() const {
   }
 }
 
-} // namespace svm_gc
-
 #endif // !PRODUCT
+
+} // namespace svm_gc
 

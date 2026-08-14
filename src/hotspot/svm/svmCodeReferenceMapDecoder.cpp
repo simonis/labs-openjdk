@@ -81,23 +81,41 @@ void SVMCodeReferenceMapDecoder::walk_offsets_from_pointer(u_char *base_address,
 
     if (derived) {
       /*
-       * To correctly relocate a derived pointer, we need to know the value pointed to by
-       * the base reference and the derived reference before either one is relocated. This
-       * allows us to compute the inner offset, i.e. how much into the actual object does
-       * the derived reference point to.
+       * Derived-pointer run.
+       *
+       * Stream layout: a run with a negative gap describes ONE base-reference slot (at obj_ref
+       * after applying the gap), immediately followed in the stream by 'count' signed slot
+       * distances. Each distance identifies another stack slot, relative to the base slot's
+       * location, holding a pointer DERIVED from the base reference: an interior address such as
+       * 'base + arrayHeader + i * elementSize' that compiled code kept live across the safepoint.
+       * (So unlike a normal run, 'count' is the number of derived offsets, not reference slots.)
+       *
+       * A derived slot must not be visited as if it held an object reference - it points into
+       * the middle of an object. Instead, when the base object moves, the derived slot must
+       * shift by the same displacement. This follows HotSpot's three-step protocol:
+       *
+       *   1. DerivedPointerTable::add(derived_slot, base_slot) runs while BOTH slots still hold
+       *      their old values and records the interior offset (*derived_slot - *base_slot).
+       *   2. The base slot is visited (f->do_oop below), which may rewrite it to the object's
+       *      new address.
+       *   3. After all base slots are updated, DerivedPointerTable::update_pointers() rewrites
+       *      each derived slot as *base_slot + recorded offset, re-reading the base slot to pick
+       *      up its NEW value.
+       *
+       * Hence two rules in the code below: add() must be called BEFORE do_oop() on the base slot
+       * (step 1 needs the old base value), and both receive SLOT ADDRESSES rather than values
+       * (step 3 must re-read the updated base slot).
+       *
+       * Stream synchronization: the 'count' derived distances are part of the encoded stream and
+       * must ALWAYS be consumed, even when the DerivedPointerTable is inactive (walks that do not
+       * move objects, e.g. stack scans for concurrent marking). Skipping them would desynchronize
+       * the decoder from the encoding grammar and misparse the remainder of this frame's
+       * reference map, making the GC treat arbitrary stack words as references.
+       *
+       * In HotSpot this protocol lives in the OopMap/frame machinery (a derived-oop closure
+       * invoked during OopMapStream iteration). SubstrateVM walks frames through this decoder
+       * instead, so the DerivedPointerTable calls are made directly here.
        */
-      u_char *base_ptr = base_address == nullptr ? obj_ref : *((u_char**)obj_ref);
-
-      if (compressed) {
-        f->do_oop((narrowOop*)obj_ref);
-      } else {
-        f->do_oop((oop*)obj_ref);
-      }
-
-      // NOTE (chaeubl): Derived references are not visited right away. Instead, they are added to a separate table that is
-      // processed at a later point in time. This handling is normally done in a deriveOopClosure but the code that calls this
-      // closure is deeply embedded into the HotSpot frame internals that we don't use. So, we just hardcode this behavior here.
-      // If the derived pointer table is not active, then there is no need to visit derived pointers and they will be ignored.
       if (DerivedPointerTable::is_active()) {
         /* count in this case is the number of derived references for this base pointer */
         for (size_t d = 0; d < count; d++) {
@@ -112,9 +130,21 @@ void SVMCodeReferenceMapDecoder::walk_offsets_from_pointer(u_char *base_address,
           }
 
           guarantee(!compressed, "Derived references must not be compressed.");
-          DerivedPointerTable::add((derived_pointer*)derived_ref, (derived_base*)base_ptr);
+          DerivedPointerTable::add((derived_pointer*)derived_ref, (derived_base*)obj_ref);
+        }
+      } else {
+        /* Even if the DerivedPointerTable is inactive, we must still consume the offsets from the stream */
+        for (size_t d = 0; d < count; d++) {
+          stream.read_signed_int();
         }
       }
+
+      if (compressed) {
+        f->do_oop((narrowOop*)obj_ref);
+      } else {
+        f->do_oop((oop*)obj_ref);
+      }
+
       obj_ref += ref_size;
     } else {
       if (compressed) {

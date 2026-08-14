@@ -25,6 +25,7 @@
  */
 
 
+#include "compiler/oopMap.hpp"
 #include "gc/shared/barrierSetNMethod.hpp"
 #include "gc/shared/collectorCounters.hpp"
 #include "gc/shared/continuationGCSupport.inline.hpp"
@@ -111,7 +112,7 @@ void ShenandoahConcurrentGC::entry_concurrent_update_refs_prepare(ShenandoahHeap
   EventMark em("%s", msg);
 
   // Evacuation is complete, retire gc labs and change gc state
-  NOT_SVM(heap->concurrent_prepare_for_update_refs();)
+  heap->concurrent_prepare_for_update_refs();
 }
 
 bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
@@ -690,6 +691,21 @@ void ShenandoahConcurrentGC::op_init_mark() {
   assert(!_generation->is_mark_complete(), "should not be complete");
   assert(!heap->has_forwarded_objects(), "No forwarded objects on this path");
 
+#ifdef SVM
+  // Retire mutator TLABs at the init-mark safepoint. Standard HotSpot makes all TLABs parsable /
+  // retires them at every safepoint (SafepointSynchronize::begin -> ensure_parsability(true)), but
+  // SubstrateVM's safepoint mechanism does not. Without this, a mutator which resumes after init mark
+  // can still allocate into its pre-existing TLAB. Those objects land BELOW the region's TAMS (which
+  // was captured at the TLAB-end 'top'), so allocated_after_mark_start() reports false for them, i.e.
+  // they are treated as pre-existing (and thus required to carry a mark bit) even though they are
+  // brand new and never traced -> a marked object can reference an unmarked object -> incomplete
+  // marking / assert_forwarded during evacuation. Retiring here forces mutators to resume with fresh
+  // TLABs, so post-init-mark allocations are above TAMS (correctly allocated_after_mark_start).
+  if (UseTLAB) {
+    heap->tlabs_retire(false /* resize */);
+  }
+#endif // SVM
+
   if (heap->mode()->is_generational()) {
 
     if (_generation->is_global()) {
@@ -738,6 +754,20 @@ void ShenandoahConcurrentGC::op_init_mark() {
     _generation->parallel_heap_region_iterate(&cl);
   }
 
+#ifdef SVM
+  // On SVM the strong roots (thread stacks, VM/OopStorage roots and the image heap) are scanned here,
+  // during the init mark safepoint, rather than concurrently. The reason is thread STACK-FRAME walking,
+  // not thread-list iteration: the SVM stack walker (NativeGCStackWalker.walkStack, invoked via
+  // _fetch_thread_stack_frames) walks every OTHER thread's stack from the GC/VM thread, which requires
+  // those threads to be stopped (a global safepoint) - a running thread's stack cannot be walked by
+  // another thread. Iterating the thread list without a safepoint is already supported (ThreadsLock), so
+  // that is not the blocker. Concurrent thread-root scanning would require a per-thread handshake (each
+  // thread walks its own stack) plus a stack-watermark load barrier, which SVM does not have yet.
+  // We push the discovered objects onto the marking queues; the subsequent concurrent marking phase
+  // (op_mark) drains them. The separate concurrent "mark roots" phase (op_mark_roots) is a no-op on SVM.
+  _mark.mark_concurrent_roots();
+#endif // SVM
+
   // Weak reference processing
   ShenandoahReferenceProcessor* rp = _generation->ref_processor();
   rp->reset_thread_locals();
@@ -763,12 +793,48 @@ void ShenandoahConcurrentGC::op_init_mark() {
 }
 
 void ShenandoahConcurrentGC::op_mark_roots() {
-  _mark.mark_concurrent_roots();
+  // On SVM the roots are scanned during the init mark safepoint (see op_init_mark), because walking
+  // other threads' stack frames requires those threads to be stopped at a global safepoint.
+  NOT_SVM(_mark.mark_concurrent_roots();)
 }
 
 void ShenandoahConcurrentGC::op_mark() {
   _mark.concurrent_mark();
 }
+
+#ifdef SVM
+// Evacuate and update thread-stack roots at the STW final-mark safepoint, before concurrent evacuation
+// begins. SVM has no stack-watermark barrier and does not process thread roots concurrently, so
+// without this the mutator stack/register references (base AND derived/interior pointers, the latter
+// bypassing the load-reference barrier) keep pointing at from-space for the whole concurrent
+// evac/update-refs window. A stale from-space reference stored into the heap (the SATB store barrier
+// is a pre-barrier and does not canonicalize the stored value), or a dereferenced stale derived
+// pointer, then leaks a from-space pointer that becomes a wild/interior reference once the from-space
+// region is recycled - later crashing concurrent marking. Evacuating and updating the thread roots here
+// makes every root reference to-space up front; combined with the load-reference barrier on heap
+// loads during evacuation, no mutator can observe or propagate a stale reference. The evacuating
+// closure (ShenandoahEvacuateUpdateMetadataClosure) copies root-referenced cset objects and updates
+// the root to its to-space location; it runs inside a ShenandoahEvacOOMScope because evacuate_object
+// may allocate. Only thread roots are handled here, VM strong / image-heap / weak roots are global and
+// are safely resolved via the load-reference barrier and updated at the STW final update-refs phase.
+// Weak roots in particular must not be processed before the weak-roots phase.
+class ShenandoahSVMEvacUpdateThreadRootsTask : public WorkerTask {
+private:
+  ShenandoahThreadRoots _thread_roots;
+public:
+  ShenandoahSVMEvacUpdateThreadRootsTask() :
+    WorkerTask("Shenandoah SVM Evac/Update Thread Roots"),
+    _thread_roots(ShenandoahPhaseTimings::conc_thread_roots,
+                  ShenandoahHeap::heap()->workers()->active_workers() > 1) {}
+
+  void work(uint worker_id) {
+    ShenandoahParallelWorkerSession worker_session(worker_id);
+    ShenandoahEvacOOMScope oom_scope;
+    ShenandoahEvacuateUpdateMetadataClosure cl;
+    _thread_roots.oops_do(&cl, nullptr, worker_id);
+  }
+};
+#endif // SVM
 
 void ShenandoahConcurrentGC::op_final_mark() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
@@ -785,6 +851,21 @@ void ShenandoahConcurrentGC::op_final_mark() {
 
     // Notify JVMTI that the tagmap table will need cleaning.
     NOT_SVM(JvmtiTagMap::set_needs_cleaning();)
+
+#ifdef SVM
+    // On SVM, mutator TLABs are not made parsable concurrently and there is no
+    // stack-watermark based lazy parsability. Retire the mutator TLABs here, at the
+    // final mark safepoint, so that every region is parsable up to its top. This is
+    // required because the concurrent update-references phase performs a linear,
+    // size-based heap walk up to each region's update watermark (which is captured
+    // as region top just below). Without this, the walk would run into the
+    // (badHeapWordVal-zapped) unused tail of an active TLAB. After retiring, mutators
+    // resume with fresh TLABs taken from regions whose update watermark is bottom, so
+    // those regions are excluded from the update-refs walk.
+    if (UseTLAB) {
+      heap->tlabs_retire(false /* resize */);
+    }
+#endif // SVM
 
     // The collection set is chosen by prepare_regions_and_collection_set(). Additionally, certain parameters have been
     // established to govern the evacuation efforts that are about to begin.  Refer to comments on reserve members in
@@ -811,9 +892,24 @@ void ShenandoahConcurrentGC::op_final_mark() {
       // From here on, we need to update references.
       heap->set_has_forwarded_objects(true);
 
+#ifndef SVM
       // Arm nmethods/stack for concurrent processing
-      NOT_SVM(ShenandoahCodeRoots::arm_nmethods_for_evac();)
-      NOT_SVM(ShenandoahStackWatermark::change_epoch_id();)
+      ShenandoahCodeRoots::arm_nmethods_for_evac();
+      ShenandoahStackWatermark::change_epoch_id();
+#else
+      // SVM has no stack-watermark barrier, so thread-stack roots cannot be evacuated/updated lazily
+      // during concurrent evacuation. Do it now, STW, so that all thread-root references (base and
+      // derived) are to-space before concurrent evacuation begins. See
+      // ShenandoahSVMEvacUpdateThreadRootsTask. The derived-pointer table records and fixes up
+      // compiled-frame derived pointers across the base evacuation, mirroring the STW degen/full
+      // update_roots path (which is why passive mode - degenerated cycles - is unaffected).
+      {
+        DerivedPointerTable::clear();
+        ShenandoahSVMEvacUpdateThreadRootsTask task;
+        heap->workers()->run_task(&task);
+        DerivedPointerTable::update_pointers();
+      }
+#endif // !SVM
 
 #ifndef SVM
       if (ShenandoahPacing) {
@@ -882,8 +978,11 @@ void ShenandoahConcurrentGC::op_thread_roots() {
   ShenandoahGCWorkerPhase worker_phase(ShenandoahPhaseTimings::conc_thread_roots);
   ShenandoahConcurrentEvacUpdateThreadTask task(heap->workers()->active_workers());
   heap->workers()->run_task(&task);
+#else
+  // SVM has no stack watermark barrier and cannot iterate threads concurrently,
+  // so thread stacks are not processed here. Stack references are resolved by the
+  // load reference barrier and updated at the (STW) final update-refs phase.
 #endif // !SVM
-  Unimplemented();
 }
 
 void ShenandoahConcurrentGC::op_weak_refs() {
@@ -955,6 +1054,7 @@ public:
     n->is_unloading();
   }
 };
+#endif // !SVM
 
 // This task not only evacuates/updates marked weak roots, but also "null"
 // dead weak roots.
@@ -962,18 +1062,22 @@ class ShenandoahConcurrentWeakRootsEvacUpdateTask : public WorkerTask {
 private:
   ShenandoahVMWeakRoots<true /*concurrent*/> _vm_roots;
 
+#ifndef SVM
   // Roots related to concurrent class unloading
   ShenandoahClassLoaderDataRoots<true /* concurrent */>
                                              _cld_roots;
   ShenandoahConcurrentNMethodIterator        _nmethod_itr;
+#endif // !SVM
   ShenandoahPhaseTimings::Phase              _phase;
 
 public:
   ShenandoahConcurrentWeakRootsEvacUpdateTask(ShenandoahPhaseTimings::Phase phase) :
     WorkerTask("Shenandoah Evacuate/Update Concurrent Weak Roots"),
     _vm_roots(phase),
+#ifndef SVM
     _cld_roots(phase, ShenandoahHeap::heap()->workers()->active_workers(), false /*heap iteration*/),
     _nmethod_itr(ShenandoahCodeRoots::table()),
+#endif // !SVM
     _phase(phase) {}
 
   ~ShenandoahConcurrentWeakRootsEvacUpdateTask() {
@@ -996,6 +1100,7 @@ public:
     // clean up the weak oops in CLD and determine nmethod's unloading state, so that we
     // can clean up immediate garbage sooner.
     if (ShenandoahHeap::heap()->unload_classes()) {
+#ifndef SVM
       // Applies ShenandoahIsCLDAlive closure to CLDs, native barrier will either null the
       // CLD's holder or evacuate it.
       {
@@ -1012,13 +1117,12 @@ public:
         ShenandoahIsNMethodAliveClosure is_nmethod_alive;
         _nmethod_itr.nmethods_do(&is_nmethod_alive);
       }
+#endif // !SVM
     }
   }
 };
-#endif // !SVM
 
 void ShenandoahConcurrentGC::op_weak_roots() {
-#ifndef SVM
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
   assert(heap->is_concurrent_weak_root_in_progress(), "Only during this phase");
   {
@@ -1040,8 +1144,6 @@ void ShenandoahConcurrentGC::op_weak_roots() {
     ShenandoahTimingsTracker t(ShenandoahPhaseTimings::conc_weak_roots_rendezvous);
     heap->rendezvous_threads("Shenandoah Concurrent Weak Roots");
   }
-#endif // !SVM
-  Unimplemented();
 }
 
 void ShenandoahConcurrentGC::op_class_unloading() {
@@ -1120,14 +1222,17 @@ public:
 #endif // !SVM
 
 void ShenandoahConcurrentGC::op_strong_roots() {
-#ifndef SVM
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
   assert(heap->is_concurrent_strong_root_in_progress(), "Checked by caller");
+#ifndef SVM
+  // On SVM the strong roots (VM/OopStorage and image heap) are not evacuated
+  // concurrently. They are updated at the (STW) final update-refs phase, and the
+  // load reference barrier keeps mutator accesses correct until then.
   ShenandoahConcurrentRootsEvacUpdateTask task(ShenandoahPhaseTimings::conc_strong_roots);
   heap->workers()->run_task(&task);
-  heap->set_concurrent_strong_root_in_progress(false);
+  // But we must still clear the flag so later phases and barriers behave correctly.
 #endif // !SVM
-  Unimplemented();
+  heap->set_concurrent_strong_root_in_progress(false);
 }
 
 void ShenandoahConcurrentGC::op_cleanup_early() {
@@ -1182,9 +1287,43 @@ void ShenandoahUpdateThreadClosure::do_thread(Thread* thread) {
 }
 
 void ShenandoahConcurrentGC::op_update_thread_roots() {
+#ifndef SVM
   ShenandoahUpdateThreadClosure cl;
   Handshake::execute(&cl);
+#else
+  // On SVM thread stacks cannot be walked concurrently (walking a running thread's
+  // stack requires it to be stopped, and ShenandoahLibrary::fetchThreadStackFrames
+  // asserts a global safepoint). Thread roots - together with the VM strong roots and
+  // image heap roots that the concurrent strong/thread-root phases skipped on SVM - are
+  // therefore updated at the STW final update-refs safepoint, see op_final_update_refs().
+#endif // !SVM
 }
+
+#ifdef SVM
+// On SVM the VM strong roots, the image heap roots and the thread stack roots are not
+// evacuated/updated by the concurrent strong-root and thread-root phases (walking a running
+// thread's stack concurrently is not supported). They are instead updated here, at the STW
+// final update-refs safepoint, before the collection set regions are recycled.
+// ShenandoahRootUpdater (via ShenandoahThreadRoots) fetches the thread stack frames at this
+// safepoint, so the thread stacks can be walked safely. Weak roots were already processed by
+// the concurrent weak-roots phase; updating them again here is idempotent.
+class ShenandoahSVMFinalUpdateRootsTask : public WorkerTask {
+private:
+  ShenandoahRootUpdater _root_updater;
+public:
+  ShenandoahSVMFinalUpdateRootsTask() :
+    WorkerTask("Shenandoah SVM Final Update Roots"),
+    _root_updater(ShenandoahHeap::heap()->workers()->active_workers(),
+                  ShenandoahPhaseTimings::conc_strong_roots) {}
+
+  void work(uint worker_id) {
+    ShenandoahParallelWorkerSession worker_session(worker_id);
+    AlwaysTrueClosure is_alive;
+    ShenandoahNonConcUpdateRefsClosure keep_alive;
+    _root_updater.roots_do<AlwaysTrueClosure, ShenandoahNonConcUpdateRefsClosure>(worker_id, &is_alive, &keep_alive);
+  }
+};
+#endif // SVM
 
 void ShenandoahConcurrentGC::op_final_update_refs() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
@@ -1192,6 +1331,17 @@ void ShenandoahConcurrentGC::op_final_update_refs() {
   assert(!heap->_update_refs_iterator.has_next(), "Should have finished update references");
 
   heap->finish_concurrent_roots();
+
+#ifdef SVM
+  // Update the roots that were skipped by the concurrent strong-root/thread-root phases
+  // (VM strong roots, image heap roots and thread stack roots). This must happen before the
+  // collection set regions are recycled (in op_cleanup_complete) and while forwarding
+  // pointers are still valid.
+  if (heap->is_evacuation_in_progress() || heap->has_forwarded_objects()) {
+    ShenandoahSVMFinalUpdateRootsTask task;
+    heap->workers()->run_task(&task);
+  }
+#endif // SVM
 
   // Clear cancelled GC, if set. On cancellation path, the block before would handle
   // everything.
@@ -1263,16 +1413,14 @@ bool ShenandoahConcurrentGC::entry_final_roots() {
                               ShenandoahWorkerPolicy::calc_workers_for_conc_evac(),
                               msg);
 
-#ifndef SVM
   if (!heap->mode()->is_generational()) {
     heap->concurrent_final_roots();
   } else {
+    SVM_ONLY(assert(true, "Generational mode is not supported on SVM");)
     if (!complete_abbreviated_cycle()) {
       return false;
     }
   }
-#endif // !SVM
-  Unimplemented();
   return true;
 }
 

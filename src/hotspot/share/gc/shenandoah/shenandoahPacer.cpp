@@ -300,8 +300,11 @@ void ShenandoahPacer::flush_stats_to_cycle() {
 }
 
 void ShenandoahPacer::print_cycle_on(outputStream* out) {
-  NOT_SVM(MutexLocker lock(Threads_lock);)
-
+#ifndef SVM
+  MutexLocker lock(Threads_lock);
+#else
+  ShenandoahThreadsLocker lock;
+#endif // !SVM
   double now = os::elapsedTime();
   double total = now - _last_time;
   _last_time = now;

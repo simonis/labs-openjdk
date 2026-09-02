@@ -87,6 +87,13 @@ public:
 
   // Notify threads waiting for GC to complete.
   void notify_alloc_failure_waiters();
+#ifdef SVM
+  // Try-lock variant for the VM operation thread, which may run at a safepoint. Blocking on the
+  // '_alloc_failure_waiters_lock' monitor can deadlock: a mutator at a safepoint can hold the
+  // monitor's mutex across its native->VM transition. Returns false if the notification
+  // could not be delivered, in which case the caller must defer it.
+  bool try_notify_alloc_failure_waiters();
+#endif // SVM
 
   // This is called for every allocation. The control thread accumulates
   // this value when idle. During the gc cycle, the control resets it

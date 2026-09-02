@@ -102,4 +102,15 @@ void ShenandoahController::notify_alloc_failure_waiters() {
   ml.notify_all();
 }
 
+#ifdef SVM
+bool ShenandoahController::try_notify_alloc_failure_waiters() {
+  if (!_alloc_failure_waiters_lock.try_lock()) {
+    return false;
+  }
+  _alloc_failure_waiters_lock.notify_all();
+  _alloc_failure_waiters_lock.unlock();
+  return true;
+}
+#endif // SVM
+
 } // namespace svm_gc

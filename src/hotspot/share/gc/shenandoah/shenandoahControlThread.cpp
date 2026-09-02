@@ -47,10 +47,63 @@ ShenandoahControlThread::ShenandoahControlThread() :
   ShenandoahController(),
   _requested_gc_cause(GCCause::_no_cause_specified),
   _degen_point(ShenandoahGC::_degenerated_outside_cycle),
+#ifdef SVM
+  _svm_cycle_owner(SVM_CYCLE_IDLE),
+  _svm_inline_gc_count(0),
+  _svm_pending_gc_waiters_notify(0),
+  _svm_pending_alloc_failure_notify(0),
+#endif // SVM
   _control_lock(CONTROL_LOCK_RANK, "ShenandoahControl_lock", true) {
   set_name("Shenandoah Control Thread");
   create_and_start();
 }
+
+#ifdef SVM
+bool ShenandoahControlThread::try_notify_gc_waiters() {
+  _gc_requested.unset();
+  if (!_gc_waiters_lock.try_lock()) {
+    return false;
+  }
+  _gc_waiters_lock.notify_all();
+  _gc_waiters_lock.unlock();
+  return true;
+}
+
+void ShenandoahControlThread::svm_drain_pending_waiter_notifications() {
+  assert(Thread::current() == this, "only the control thread drains deferred notifications");
+  if (Atomic::cmpxchg(&_svm_pending_gc_waiters_notify, 1, 0) == 1) {
+    notify_gc_waiters();
+  }
+  if (Atomic::cmpxchg(&_svm_pending_alloc_failure_notify, 1, 0) == 1) {
+    notify_alloc_failure_waiters();
+  }
+}
+
+void ShenandoahControlThread::svm_acquire_cycle_ownership() {
+  assert(Thread::current() == this, "only the control thread acquires with this method");
+  // Bounded wait: the only other owner is the VM operation thread running an inline STW GC.
+  while (Atomic::cmpxchg(&_svm_cycle_owner, SVM_CYCLE_IDLE, SVM_CYCLE_OWNER_CONTROL_THREAD) != SVM_CYCLE_IDLE) {
+    os::naked_short_sleep(1);
+  }
+}
+
+void ShenandoahControlThread::svm_release_cycle_ownership() {
+  assert(Atomic::load(&_svm_cycle_owner) == SVM_CYCLE_OWNER_CONTROL_THREAD, "must be owned by the control thread");
+  Atomic::store(&_svm_cycle_owner, SVM_CYCLE_IDLE);
+}
+
+// RAII: the control thread owns the logical GC for the duration of a full cycle.
+class ShenandoahSVMCycleOwnershipMark : public StackObj {
+  ShenandoahControlThread* const _thread;
+public:
+  ShenandoahSVMCycleOwnershipMark(ShenandoahControlThread* thread) : _thread(thread) {
+    _thread->svm_acquire_cycle_ownership();
+  }
+  ~ShenandoahSVMCycleOwnershipMark() {
+    _thread->svm_release_cycle_ownership();
+  }
+};
+#endif // SVM
 
 void ShenandoahControlThread::run_service() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
@@ -63,6 +116,11 @@ void ShenandoahControlThread::run_service() {
   ShenandoahCollectorPolicy* const policy = heap->shenandoah_policy();
   ShenandoahHeuristics* const heuristics = heap->heuristics();
   while (!should_terminate()) {
+#ifdef SVM
+    // Deliver notifications an inline GC on the VM operation thread had to defer.
+    svm_drain_pending_waiter_notifications();
+    const size_t svm_inline_gc_count_at_decision = Atomic::load(&_svm_inline_gc_count);
+#endif // SVM
     const GCCause::Cause cancelled_cause = heap->cancelled_cause();
     if (cancelled_cause == GCCause::_shenandoah_stop_vm) {
       break;
@@ -133,6 +191,24 @@ void ShenandoahControlThread::run_service() {
     assert (!gc_requested || cause != GCCause::_last_gc_cause, "GC cause should be set");
 
     if (gc_requested) {
+#ifdef SVM
+      // Own the (single) logical GC for the whole cycle. The VM operation thread try-acquires
+      // the ownership token before running a GC inline (see run_gc_on_vm_thread): holding it here
+      // for the complete cycle guarantees that an inline GC can never interleave with this cycle's
+      // GC state and phase tracking. Only ever contended by that inline GC, so the acquisition
+      // below only blocks while an inline GC is running, which is exactly when it must wait.
+      ShenandoahSVMCycleOwnershipMark svm_cycle_ownership(this);
+      if (Atomic::load(&_svm_inline_gc_count) != svm_inline_gc_count_at_decision) {
+        // An inline GC ran on the VM operation thread between this loop's decision and the
+        // ownership acquisition above. The decision inputs are stale: the inline GC cleared
+        // the cancellation and reset the marking state, so e.g. a degenerated cycle that
+        // expected to resume from a mid-cycle point (with complete marking) would fire
+        // "assert(is_mark_complete()): Marking must be completed". Re-evaluate from scratch.
+        log_info(gc)("Cycle decision invalidated by an inline GC on the VM operation thread, re-evaluating");
+        continue;
+      }
+#endif // SVM
+
       // Cannot uncommit bitmap slices during concurrent reset
       ShenandoahNoUncommitMark forbid_region_uncommit(heap);
 
@@ -430,6 +506,43 @@ void ShenandoahControlThread::handle_requested_gc(GCCause::Cause cause) {
 void ShenandoahControlThread::run_gc_on_vm_thread(GCCause::Cause cause) {
   assert(Thread::current()->is_VM_thread(), "must only be called by the VM operation thread");
 
+  // Re-entrancy: an inline GC on the VM thread triggered another GC request (e.g. an
+  // allocation failure while executing the inline GC itself). Another GC cannot help so
+  // lets drop the request.
+  if (Atomic::load(&_svm_cycle_owner) == SVM_CYCLE_OWNER_VM_THREAD) {
+    log_info(gc)("GC request (%s) on the VM operation thread ignored: an inline GC is already running on this thread",
+                 GCCause::to_string(cause));
+    return;
+  }
+
+  // Only one logical GC may be active at a time because the GC state (gc_state, mark bitmaps,
+  // collection set) and the phase tracking (ShenandoahTimingsTracker::_current_phase)
+  // assume a single owner. The control thread holds the ownership token for the whole
+  // duration of every cycle it runs. If it is mid-cycle right now, the VM thread must
+  // NOT run a GC inline. It also must NOT wait for the cycle to finish because the control
+  // thread's next STW phase is a VM operation that has to run on the VM thread as well,
+  // which is already busy executing the current VM operation so waiting would deadlock.
+  // Instead, we hand the request to the control thread:
+  //  - For an allocation failure, cancel the concurrent cycle with the standard non-blocking
+  //    mutator protocol. The control thread unwinds quickly and runs a degenerated cycle
+  //    as soon as this VM operation completes. The current allocation may still fail but that
+  //    is the correct outcome for an allocation the running cycle cannot satisfy in time.
+  //  - For an explicit/diagnostic GC request, notify the control thread asynchronously. The
+  //    request is served by the next cycle, right after this VM operation completes (stock
+  //    HotSpot treats GC requests on the VM thread similarly, see collect_as_vm_thread()).
+  if (Atomic::cmpxchg(&_svm_cycle_owner, SVM_CYCLE_IDLE, SVM_CYCLE_OWNER_VM_THREAD) != SVM_CYCLE_IDLE) {
+    if (ShenandoahCollectorPolicy::is_allocation_failure(cause)) {
+      if (ShenandoahHeap::heap()->cancel_gc(cause)) {
+        log_info(gc)("Failed to allocate on the VM operation thread during a concurrent cycle: cancelling the cycle");
+      }
+    } else {
+      log_info(gc)("GC request (%s) on the VM operation thread during a concurrent cycle: deferring to the control thread",
+                   GCCause::to_string(cause));
+      notify_control_thread(cause);
+    }
+    return;
+  }
+
   // A VM operation requires the thread to be in VM state. While executing a VM
   // operation the VM thread typically transitioned to native before calling into
   // the GC C++ code (e.g. via the allocation slow path), so transition back if
@@ -511,10 +624,16 @@ void ShenandoahControlThread::run_gc_on_vm_thread(GCCause::Cause cause) {
       service_stw_full_cycle(cause);
     }
 
-    // This GC satisfies any pending requests as well, so release waiters.
-    notify_gc_waiters();
-    if (!heap->cancelled_gc()) {
-      notify_alloc_failure_waiters();
+    // This GC satisfies any pending requests as well, so release waiters. These monitors must
+    // NOT be waited for here: this thread may be executing an outer VM operation at a safepoint,
+    // and a mutator frozen for that safepoint can hold a waiter monitor's mutex across its
+    // native->VM transition. Blocking on it would deadlock, because only this thread can end the
+    // safepoint. Try to notify, and defer to the control thread if the monitor is contended.
+    if (!try_notify_gc_waiters()) {
+      Atomic::store(&_svm_pending_gc_waiters_notify, 1);
+    }
+    if (!heap->cancelled_gc() && !try_notify_alloc_failure_waiters()) {
+      Atomic::store(&_svm_pending_alloc_failure_notify, 1);
     }
 
     // Report current free set state at the end of cycle, whether
@@ -543,6 +662,11 @@ void ShenandoahControlThread::run_gc_on_vm_thread(GCCause::Cause cause) {
     // Retract forceful part of soft refs policy
     heap->process_gc_stats();
   }
+
+  // Publish that an inline GC completed BEFORE releasing the ownership token, so that a
+  // control thread that subsequently acquires the token reliably observes the increment.
+  Atomic::inc(&_svm_inline_gc_count);
+  Atomic::store(&_svm_cycle_owner, SVM_CYCLE_IDLE);
 
   if (in_native) {
     SVMGlobalData::_transition_vm_to_native(ithread);

@@ -140,7 +140,7 @@
           "With automatic region sizing, the regions would be at most "     \
           "this large.")                                                    \
                                                                             \
-  ni_runtime(ccstr, ShenandoahGCMode, "satb",                               \
+  ni_hosted(ccstr, ShenandoahGCMode, "satb",                                \
           "GC mode to use.  Among other things, this defines which "        \
           "barriers are in in use. Possible values are:"                    \
           " satb - snapshot-at-the-beginning concurrent GC (three pass mark-evac-update);"  \
@@ -535,11 +535,6 @@
                                                                             \
   ni_hosted(bool, ShenandoahSATBBarrier, true, DIAGNOSTIC,                  \
           "Turn on/off SATB barriers in Shenandoah")                        \
-                                                                            \
-  ni_hosted(bool, ShenandoahGenerational, false, EXPERIMENTAL,              \
-          "Whether the native image was built with support for the "        \
-          "generational mode, i.e. with card-marking barriers in "          \
-          "compiled code (-H:+ShenandoahGenerational).")                    \
                                                                             \
   ni_hosted(bool, ShenandoahCardBarrier, false, DIAGNOSTIC,                 \
           "Turn on/off card-marking post-write barrier in Shenandoah: "     \

@@ -155,7 +155,8 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
     char *offsets, int offsets_length,
     queueVmOperationFunc collect_for_allocation_op, queueVmOperationFunc collect_full_op, queueVmOperationFunc collect_degenerated_op, queueVmOperationFunc init_mark_op, queueVmOperationFunc final_mark_op, queueVmOperationFunc init_update_refs_op, queueVmOperationFunc final_update_refs_op, queueVmOperationFunc final_roots_op, queueVmOperationFunc handshake_fallback_op,
     vmOperationStatusFunc wait_for_vm_operation_execution_status, vmOperationStatusFunc update_vm_operation_execution_status,
-    vmOperationDataFunc is_vm_operation_finished, fetchThreadStackFramesFunc fetch_thread_stack_frames, freeThreadStackFramesFunc free_thread_stack_frames,
+    vmOperationDataFunc is_vm_operation_finished, yieldToQueuedVmOperationsFunc yield_to_queued_vm_operations,
+    fetchThreadStackFramesFunc fetch_thread_stack_frames, freeThreadStackFramesFunc free_thread_stack_frames,
     fetchContinuationStackFramesFunc fetch_continuation_stack_frames, freeContinuationStackFramesFunc free_continuation_stack_frames,
     fetchCodeInfosFunc fetch_code_infos, freeCodeInfosFunc free_code_infos, cleanRuntimeCodeCacheFunc clean_runtime_code_cache,
     threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm,
@@ -201,6 +202,7 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   guarantee(wait_for_vm_operation_execution_status != nullptr, "must be");
   guarantee(update_vm_operation_execution_status != nullptr, "must be");
   guarantee(is_vm_operation_finished != nullptr, "must be");
+  guarantee(yield_to_queued_vm_operations != nullptr, "must be");
   guarantee(fetch_thread_stack_frames != nullptr, "must be");
   guarantee(free_thread_stack_frames != nullptr, "must be");
   guarantee(transition_vm_to_native != nullptr, "must be");
@@ -241,6 +243,7 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   SVMGlobalData::_wait_for_vm_operation_execution_status = wait_for_vm_operation_execution_status;
   SVMGlobalData::_update_vm_operation_execution_status = update_vm_operation_execution_status;
   SVMGlobalData::_is_vm_operation_finished = is_vm_operation_finished;
+  SVMGlobalData::_yield_to_queued_vm_operations = yield_to_queued_vm_operations;
   SVMGlobalData::_fetch_thread_stack_frames = fetch_thread_stack_frames;
   SVMGlobalData::_free_thread_stack_frames = free_thread_stack_frames;
   SVMGlobalData::_fetch_continuation_stack_frames = fetch_continuation_stack_frames;
@@ -309,6 +312,12 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
         in_bytes(ShenandoahThreadLocalData::satb_mark_queue_index_offset()) - in_bytes(ShenandoahThreadLocalData::gc_state_offset());
     shenandoah_init_state.satb_buffer_offset =
         in_bytes(ShenandoahThreadLocalData::satb_mark_queue_buffer_offset()) - in_bytes(ShenandoahThreadLocalData::gc_state_offset());
+    // Offset of the per-thread card-table base pointer, also relative to gc_state. The C++ side
+    // maintains it (ShenandoahBarrierSet::on_thread_attach and on card-table swaps), and it is null
+    // unless the current mode keeps a remembered set, which lets the inlined card-marking barrier of
+    // generational mode skip itself in the other modes.
+    shenandoah_init_state.card_table_offset =
+        in_bytes(ShenandoahThreadLocalData::card_table_offset()) - in_bytes(ShenandoahThreadLocalData::gc_state_offset());
     shenandoah_init_state.mark_offset = oopDesc::mark_offset_in_bytes();
     shenandoah_init_state.gc_state_offset = in_bytes(ShenandoahThreadLocalData::gc_state_offset());
     shenandoah_init_state.dirty_card_value = CardTable::dirty_card_val();

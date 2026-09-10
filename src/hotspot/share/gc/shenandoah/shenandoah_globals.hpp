@@ -536,6 +536,11 @@
   ni_hosted(bool, ShenandoahSATBBarrier, true, DIAGNOSTIC,                  \
           "Turn on/off SATB barriers in Shenandoah")                        \
                                                                             \
+  ni_hosted(bool, ShenandoahGenerational, false, EXPERIMENTAL,              \
+          "Whether the native image was built with support for the "        \
+          "generational mode, i.e. with card-marking barriers in "          \
+          "compiled code (-H:+ShenandoahGenerational).")                    \
+                                                                            \
   ni_hosted(bool, ShenandoahCardBarrier, false, DIAGNOSTIC,                 \
           "Turn on/off card-marking post-write barrier in Shenandoah: "     \
           " true when ShenandoahGCMode is generational, false otherwise")   \

@@ -99,12 +99,6 @@ public:
 
   void request_gc(GCCause::Cause cause) override;
 
-#ifdef SVM
-  // In SVM the VM operation thread is a Java thread that may run a GC inline.
-  // Generational mode is not yet supported on SVM, so this is a placeholder.
-  void run_gc_on_vm_thread(GCCause::Cause cause) override;
-#endif // SVM
-
   // Return true if the request to start a concurrent GC for the given generation succeeded.
   bool request_concurrent_gc(ShenandoahGeneration* generation);
 
@@ -112,6 +106,15 @@ public:
   GCMode gc_mode() const {
     return _gc_mode;
   }
+
+#ifdef SVM
+  // Runs the STW cycle of a GC that executes inline on the VM operation thread; the shared
+  // skeleton and the protocol live in ShenandoahController::run_gc_on_vm_thread().
+  void svm_run_inline_gc_cycle(GCCause::Cause cause) override;
+  bool try_notify_gc_waiters() override;
+  void svm_record_gc_request(GCCause::Cause cause) override;
+#endif // SVM
+
 private:
   // Returns true if the cycle has been cancelled or degenerated.
   bool check_cancellation_or_degen(ShenandoahGC::ShenandoahDegenPoint point);
@@ -129,7 +132,7 @@ private:
   void service_concurrent_normal_cycle(const ShenandoahGCRequest& request);
   void service_concurrent_old_cycle(const ShenandoahGCRequest& request);
 
-  void notify_gc_waiters();
+  void notify_gc_waiters() SVM_ONLY(override);
 
   // Blocks until at least one global GC cycle is complete.
   void handle_requested_gc(GCCause::Cause cause);

@@ -1273,6 +1273,15 @@ private:
 
       ShenandoahHeap* heap = ShenandoahHeap::heap();
 
+#ifdef SVM
+      // Image heap objects are always live, are never marked, never belong to a collection set
+      // are never forwarded, and their regions carry no generation affiliation so none of the
+      // checks below apply to them.
+      if (SVMImageHeap::is_image_heap_object(obj)) {
+        return;
+      }
+#endif // SVM
+
       if (!heap->marking_context()->is_marked_or_old(obj)) {
         ShenandoahAsserts::print_failure(ShenandoahAsserts::_safe_all, obj, p, nullptr,
                 "Verify Roots In To-Space", "Should be marked", __FILE__, __LINE__);
@@ -1296,12 +1305,42 @@ public:
   void do_oop(oop* p)       override { do_oop_work(p); }
 };
 
+#ifdef SVM
+// Fetches the Java thread stack frames that the SVM stack walking needs, exactly as
+// ShenandoahThreadRoots does for the GC's own root scans and verify_at_safepoint() does for the
+// heap verification. Any root walk that reaches Threads::possibly_parallel_oops_do() (see
+// ShenandoahRootVerifier::roots_do()) must be wrapped in this, otherwise walking a thread trips
+// "assert(_stack_frames != nullptr) failed: must be".
+class ShenandoahSVMVerifierThreadStackFrames : public StackObj {
+private:
+  StackFramesPerThread* const _stack_frames;
+
+public:
+  // Only the stack frames are fetched, not the code infos: the root verification walks thread roots
+  // without an NMethodClosure (see ShenandoahRootVerifier::roots_do()). set_java_stack_frames()
+  // returns nullptr when an enclosing scope has already fetched them (and free_java_stack_frames()
+  // ignores nullptr), so this nests inside verify_at_safepoint().
+  ShenandoahSVMVerifierThreadStackFrames() : _stack_frames(Threads::set_java_stack_frames()) {
+  }
+
+  ~ShenandoahSVMVerifierThreadStackFrames() {
+    Threads::free_java_stack_frames(_stack_frames);
+  }
+};
+#endif // SVM
+
 void ShenandoahVerifier::verify_roots_in_to_space() {
+#ifdef SVM
+  ShenandoahSVMVerifierThreadStackFrames svm_thread_stack_frames;
+#endif // SVM
   ShenandoahVerifyInToSpaceClosure cl;
   ShenandoahRootVerifier::roots_do(&cl);
 }
 
 void ShenandoahVerifier::verify_roots_no_forwarded() {
+#ifdef SVM
+  ShenandoahSVMVerifierThreadStackFrames svm_thread_stack_frames;
+#endif // SVM
   ShenandoahVerifyNoForwarded cl;
   ShenandoahRootVerifier::roots_do(&cl);
 }

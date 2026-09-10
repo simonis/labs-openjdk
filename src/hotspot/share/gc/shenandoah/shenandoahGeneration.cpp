@@ -242,7 +242,6 @@ void ShenandoahGeneration::swap_card_tables() {
 // write-version. The work is done at a safepoint and in parallel by the GC
 // worker threads.
 void ShenandoahGeneration::merge_write_table() {
-#ifndef SVM
   // This should only happen for degenerated cycles
   ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::heap();
   heap->assert_gc_workers(heap->workers()->active_workers());
@@ -251,8 +250,6 @@ void ShenandoahGeneration::merge_write_table() {
   ShenandoahOldGeneration* old_generation = heap->old_generation();
   ShenandoahMergeWriteTable task(old_generation->card_scan());
   old_generation->parallel_heap_region_iterate(&task);
-#endif // !SVM
-  Unimplemented();
 }
 
 void ShenandoahGeneration::prepare_gc() {

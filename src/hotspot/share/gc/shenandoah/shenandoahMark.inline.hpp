@@ -301,6 +301,12 @@ inline void ShenandoahMark::mark_through_ref(T *p, ShenandoahObjToScanQueue* q, 
   if (!CompressedOops::is_null(o)) {
     oop obj = CompressedOops::decode_not_null(o);
 
+#ifdef SVM
+    // We don't mark in the image heap: its objects are always live, are never moved, and their
+    // regions carry no generation affiliation.
+    if (SVMImageHeap::is_image_heap_object(obj)) return;
+#endif // SVM
+
     ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::heap();
     shenandoah_assert_not_forwarded(p, obj);
     shenandoah_assert_not_in_cset_except(p, obj, heap->cancelled_gc());

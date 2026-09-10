@@ -24,6 +24,7 @@
 
 
 #include "gc/shenandoah/shenandoahConcurrentGC.hpp"
+#include "gc/shenandoah/shenandoahController.hpp"
 #include "gc/shenandoah/shenandoahDegeneratedGC.hpp"
 #include "gc/shenandoah/shenandoahFullGC.hpp"
 #include "gc/shenandoah/shenandoahGeneration.hpp"
@@ -95,14 +96,20 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
 void VM_ShenandoahFullGC::doit() {
 #ifdef SVM
   // Create the GC session here (on the VM operation thread) rather than on the
-  // requesting thread. All STW GC cycles run their body on the single VM
-  // operation thread, so doing the cycle bookkeeping here serializes a GC driven
-  // by the control thread with a GC the VM operation thread runs inline for
-  // itself (e.g. after an allocation failure during another VM operation),
-  // avoiding overlapping GC cycles.
+  // requesting thread. All STW GC cycles run their body on the VM thread, so doing
+  // the cycle bookkeeping here serializes a GC driven by the Control thread with a
+  // GC the VM operation thread runs inline.
+  // The generational control thread creates the session itself, so only do it here for the
+  // non-generational case, otherwise nesting two sessions trips "Over-writing cause".
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  ShenandoahGCSession session(_gc_cause, heap->global_generation());
-  ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::full_gc_gross);
+  if (!heap->mode()->is_generational()) {
+    ShenandoahGCSession session(_gc_cause, heap->global_generation());
+    ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::full_gc_gross);
+    ShenandoahGCPauseMark mark(_gc_id, "Full GC", SvcGCMarker::FULL);
+    set_active_generation();
+    _full_gc->entry_full(_gc_cause);
+    return;
+  }
 #endif // SVM
   ShenandoahGCPauseMark mark(_gc_id, "Full GC", SvcGCMarker::FULL);
   set_active_generation();
@@ -111,12 +118,16 @@ void VM_ShenandoahFullGC::doit() {
 
 void VM_ShenandoahDegeneratedGC::doit() {
 #ifdef SVM
-  // See VM_ShenandoahFullGC::doit(): the GC session and gross-timing tracker are
-  // created here (on the VM operation thread) to serialize with any GC the VM
-  // operation thread runs inline for itself.
+  // See VM_ShenandoahFullGC::doit().
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  ShenandoahGCSession session(_gc_cause, heap->global_generation());
-  ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::degen_gc_gross);
+  if (!heap->mode()->is_generational()) {
+    ShenandoahGCSession session(_gc_cause, heap->global_generation());
+    ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::degen_gc_gross);
+    ShenandoahGCPauseMark mark(_gc_id, "Degenerated GC", SvcGCMarker::CONCURRENT);
+    set_active_generation();
+    _gc->entry_degenerated();
+    return;
+  }
 #endif // SVM
   ShenandoahGCPauseMark mark(_gc_id, "Degenerated GC", SvcGCMarker::CONCURRENT);
   set_active_generation();

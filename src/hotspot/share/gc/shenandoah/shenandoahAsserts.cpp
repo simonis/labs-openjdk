@@ -25,6 +25,7 @@
 
 #include "gc/shenandoah/shenandoahAsserts.hpp"
 #include "gc/shenandoah/shenandoahForwarding.hpp"
+#include "gc/shenandoah/shenandoahController.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahHeapRegionSet.inline.hpp"
 #include "gc/shenandoah/shenandoahMarkingContext.inline.hpp"
@@ -494,6 +495,16 @@ void ShenandoahAsserts::assert_control_or_vm_thread_at_safepoint(bool at_safepoi
     } else if (SafepointSynchronize::is_at_safepoint()) {
       return;
     }
+#ifdef SVM
+    // In SVM the VM operation thread can run a GC inline for itself when it hits an allocation failure
+    // or an explicit request while executing another VM operation. It then owns the GC cycle, so the
+    // state guarded by this assert cannot be mutated concurrently even though the parts of the cycle
+    // outside its STW operations do not run at a safepoint. This is how the generational control
+    // thread reaches ShenandoahGCSession from run_gc_on_vm_thread().
+    if (ShenandoahHeap::heap()->control_thread()->svm_inline_gc_in_progress()) {
+      return;
+    }
+#endif // SVM
   }
 
   ShenandoahMessageBuffer msg("Must be either control thread, or vm thread");

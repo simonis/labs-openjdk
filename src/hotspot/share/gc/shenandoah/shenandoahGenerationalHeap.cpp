@@ -821,7 +821,12 @@ private:
 
       log_debug(gc)("Update refs worker " UINT32_FORMAT ", looking at region %zu", worker_id, r->index());
       bool region_progress = false;
-      if (r->is_active() && !r->is_cset()) {
+      // SVM image heap regions are active but carry no generation affiliation (they are neither
+      // YOUNG nor OLD), are never collected and never moved. Their outgoing references are updated
+      // through the image heap root set (ShenandoahOpenImageHeapRoots), so they must be skipped here
+      // because otherwise they fall into the "newly transitioned from FREE" case below, whose assert
+      // (update watermark == bottom) does not hold for a populated image heap region.
+      if (r->is_active() && !r->is_cset() SVM_ONLY(&& !r->is_image_heap())) {
         if (r->is_young()) {
           _heap->marked_object_oop_iterate(r, &cl, update_watermark);
           region_progress = true;

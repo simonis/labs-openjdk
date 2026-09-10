@@ -241,16 +241,12 @@ void ShenandoahArguments::initialize_alignments() {
 }
 
 CollectedHeap* ShenandoahArguments::create_heap() {
-#ifndef SVM
   if (strcmp(ShenandoahGCMode, "generational") != 0) {
-#endif // !SVM
     // Not generational
     return new ShenandoahHeap(new ShenandoahCollectorPolicy());
-#ifndef SVM
   } else {
     return new ShenandoahGenerationalHeap(new ShenandoahCollectorPolicy());
   }
-#endif // !SVM
 }
 
 }

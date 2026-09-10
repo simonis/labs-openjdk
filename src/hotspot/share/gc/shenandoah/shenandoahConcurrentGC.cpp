@@ -32,6 +32,7 @@
 #include "gc/shenandoah/shenandoahBreakpoint.hpp"
 #include "gc/shenandoah/shenandoahClosures.inline.hpp"
 #include "gc/shenandoah/shenandoahCollectorPolicy.hpp"
+#include "gc/shenandoah/shenandoahController.hpp"
 #include "gc/shenandoah/shenandoahConcurrentGC.hpp"
 #include "gc/shenandoah/shenandoahFreeSet.hpp"
 #include "gc/shenandoah/shenandoahGeneration.hpp"
@@ -254,7 +255,6 @@ bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
 }
 
 bool ShenandoahConcurrentGC::complete_abbreviated_cycle() {
-#ifndef SVM
   shenandoah_assert_generational();
 
   ShenandoahGenerationalHeap* const heap = ShenandoahGenerationalHeap::heap();
@@ -296,8 +296,6 @@ bool ShenandoahConcurrentGC::complete_abbreviated_cycle() {
     heap->concurrent_final_roots(&complete_thread_local_satb_buffers);
     heap->old_generation()->concurrent_transfer_pointers_from_satb();
   }
-#endif // !SVM
-  Unimplemented();
   return true;
 }
 

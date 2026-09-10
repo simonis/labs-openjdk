@@ -212,7 +212,13 @@ class oopDesc {
   }
   static int klass_gap_offset_in_bytes() {
     assert(has_klass_gap(), "only applicable to compressed klass pointers");
-    return klass_offset_in_bytes() + sizeof(narrowKlass);
+    // The 4-byte gap that MemAllocator::mem_clear must zero separately is the slot right before
+    // the word-aligned minimal object size, i.e. SubstrateVM's first field offset (_obj_base).
+    // With -H:AdditionalHeaderBytes it is NOT adjacent to the klass field: the additional header
+    // bytes sit between the klass field and the first field, so computing the gap as
+    // "klass offset + klass size" would zero a header byte and leave the real gap (the first,
+    // 4-byte field slot of the object) uninitialized.
+    return SVMGlobalData::_offsets._object_layout._obj_base;
   }
 };
 

@@ -26,6 +26,7 @@
 
 #include "gc/shared/collectorCounters.hpp"
 #include "gc/shenandoah/shenandoahCollectorPolicy.hpp"
+#include "gc/shenandoah/shenandoahController.hpp"
 #include "gc/shenandoah/shenandoahConcurrentMark.hpp"
 #include "gc/shenandoah/shenandoahDegeneratedGC.hpp"
 #include "gc/shenandoah/shenandoahFullGC.hpp"
@@ -50,6 +51,9 @@ namespace svm_gc {
 ShenandoahDegenGC::ShenandoahDegenGC(ShenandoahDegenPoint degen_point, ShenandoahGeneration* generation) :
   ShenandoahGC(),
   _degen_point(degen_point),
+#ifdef SVM
+  _svm_inline_gc_count_when_planned(ShenandoahHeap::heap()->control_thread()->svm_inline_gc_count()),
+#endif // SVM
   _generation(generation),
   _abbreviated(false) {
 }
@@ -99,6 +103,20 @@ void ShenandoahDegenGC::op_degenerated() {
   // GC failure via cancelled_concgc() flag. So, if we detect the failure after
   // some phase, we have to upgrade the Degenerate GC to Full GC.
   heap->clear_cancelled_gc();
+
+#ifdef SVM
+  if (heap->control_thread()->svm_inline_gc_count() != _svm_inline_gc_count_when_planned) {
+    // The VM operation thread ran a GC inline for itself after this cycle was planned (it can do so
+    // while the Control thread waits for this very operation, see
+    // ShenandoahSVMParkedForVMOperationMark). The state this cycle would resume from like mark
+    // completeness, evacuation state and the degeneration point itself is therefore stale. A full GC
+    // does not depend on any of it, so upgrade, which is what a degenerated cycle does anyway whenever
+    // it cannot proceed (see op_degenerated_futile()).
+    log_info(gc)("Upgrading degenerated GC to full GC: an inline GC ran on the VM operation thread");
+    upgrade_to_full();
+    return;
+  }
+#endif // SVM
 
 #ifdef ASSERT
   if (heap->mode()->is_generational()) {

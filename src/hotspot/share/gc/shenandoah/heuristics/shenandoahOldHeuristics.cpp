@@ -345,6 +345,13 @@ void ShenandoahOldHeuristics::prepare_for_old_collections() {
       continue;
     }
 
+#ifdef SVM
+    if (region->is_image_heap()) {
+      // We don't collect the image heap.
+      continue;
+    }
+#endif // SVM
+
     size_t garbage = region->garbage();
     size_t live_bytes = region->get_live_data_bytes();
     live_data += live_bytes;

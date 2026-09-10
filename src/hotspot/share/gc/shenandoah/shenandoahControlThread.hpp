@@ -61,6 +61,14 @@ public:
 
   void request_gc(GCCause::Cause cause) override;
 
+#ifdef SVM
+  // Runs the STW cycle of a GC that executes inline on the VM operation thread. The shared
+  // skeleton and the protocol live in ShenandoahController::run_gc_on_vm_thread().
+  void svm_run_inline_gc_cycle(GCCause::Cause cause) override;
+  bool try_notify_gc_waiters() override;
+  void svm_record_gc_request(GCCause::Cause cause) override { notify_control_thread(cause); }
+#endif // SVM
+
 private:
   // Sets the requested cause and flag and notifies the control thread
   void notify_control_thread(GCCause::Cause cause);
@@ -70,70 +78,11 @@ private:
   void service_stw_full_cycle(GCCause::Cause cause);
   void service_stw_degenerated_cycle(GCCause::Cause cause, ShenandoahGC::ShenandoahDegenPoint point);
 
-  void notify_gc_waiters();
+  void notify_gc_waiters() SVM_ONLY(override);
 
   // Handle GC request.
   // Blocks until GC is over.
   void handle_requested_gc(GCCause::Cause cause);
-
-#ifdef SVM
-public:
-  // Runs a STW full GC directly on the VM operation thread. In SVM the VM
-  // operation thread is a Java thread that can allocate (and therefore trigger
-  // a GC) while executing a VM operation. Because a STW GC is itself a VM
-  // operation that must run on the VM operation thread, such a GC cannot be
-  // delegated to the control thread (which might be blocked waiting for this
-  // very thread). The GC is therefore executed inline and synchronously.
-  //
-  // Additionally, only one logical GC may be active at a time because GC state,
-  // and the phase tracking in ShenandoahTimingsTracker::_current_phase, assume a
-  // single owner. The control thread owns the cycle-ownership token (_svm_cycle_owner)
-  // for the whole duration of every cycle it runs and this method try-acquires it.
-  // If the token is unavailable because the control thread is in the middle of a
-  // concurrent cycle, the GC cannot run inline and the request is handed to the
-  // control thread asynchronously instead.
-  void run_gc_on_vm_thread(GCCause::Cause cause) override;
-
-private:
-  enum SVMCycleOwner {
-    SVM_CYCLE_IDLE = 0,
-    SVM_CYCLE_OWNER_CONTROL_THREAD = 1,
-    SVM_CYCLE_OWNER_VM_THREAD = 2
-  };
-
-  // Ownership token for the single logical GC. Owned by the control thread for
-  // the whole duration of every cycle it runs, and by the VM operation thread
-  // for the duration of an inline GC. A plain atomic (rather than a Mutex) is
-  // used because the control thread must hold it across code that acquires
-  // Heap_lock (with rank safepoint) inside VM_ShenandoahReferenceOperation::
-  // doit_prologue(), which no Mutex rank above all in-cycle locks can express.
-  volatile SVMCycleOwner _svm_cycle_owner;
-
-  // Incremented by run_gc_on_vm_thread() for every completed inline GC before it releases
-  // the ownership token. The control thread samples it at the top of its service loop and
-  // re-checks after acquiring cycle ownership: a change means an inline GC ran in between,
-  // invalidating the already-computed cycle decision like cancellation cause, degeneration
-  // point, mark completeness, etc. which must then be re-evaluated.
-  volatile size_t _svm_inline_gc_count;
-
-  // Set when an inline GC on the VM operation thread could not deliver a waiter
-  // notification (see try_notify_alloc_failure_waiters). Drained by the control thread,
-  // which can block on the waiter monitors safely.
-  volatile int _svm_pending_gc_waiters_notify;
-  volatile int _svm_pending_alloc_failure_notify;
-
-  // Try-lock variant of notify_gc_waiters(); see try_notify_alloc_failure_waiters().
-  bool try_notify_gc_waiters();
-
-  // Delivers any notification an inline GC had to defer.
-  void svm_drain_pending_waiter_notifications();
-
-public:
-  // Blocking acquire/release for the control thread. The wait is bounded: the
-  // only other owner is the VM operation thread running an inline STW GC.
-  void svm_acquire_cycle_ownership();
-  void svm_release_cycle_ownership();
-#endif // SVM
 };
 
 } // namespace svm_gc

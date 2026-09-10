@@ -47,6 +47,7 @@ struct ShenandoahInitState {
   int tlab_top_offset;
   int tlab_end_offset;
   int card_table_shift;
+  int card_table_offset;
   int log_of_heap_region_grain_bytes;
   int java_thread_size;
   int vm_operation_data_size;

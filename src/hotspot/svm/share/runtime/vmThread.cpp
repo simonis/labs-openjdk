@@ -24,6 +24,8 @@
 
 #include "compiler/compileBroker.hpp"
 #include "gc/shared/collectedHeap.hpp"
+#include "gc/shenandoah/shenandoahController.hpp"
+#include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "jfr/jfrEvents.hpp"
 #include "jfr/support/jfrThreadId.hpp"
 #include "logging/log.hpp"
@@ -97,6 +99,14 @@ void VMThread::execute(VM_Operation* op) {
   //   VM operation Y. There it is blocked when trying to lock the VM operation mutex.
   // - the VM thread allocates a Java object and needs a slow-path allocation. For that, it tries to lock the
   //   Heap_lock and gets blocked as thread B holds the Heap_lock.
+
+#ifdef INCLUDE_SHENANDOAHGC
+  // If the caller is the Shenandoah Control thread executing a cycle, it is about to wait for the
+  // VM operation thread. Mark it parked, so that the VM operation thread can run a GC on the parked
+  // cycle if it needs one to complete its current operation. Doing this here covers every VM
+  // operation the Control thread executes (see ShenandoahSVMParkedForVMOperationMark).
+  ShenandoahSVMParkedForVMOperationMark parked(ShenandoahHeap::heap()->control_thread());
+#endif
 
   address heap_base = CompressedOops::base();
   IsolateThread *isolate_thread = nullptr;

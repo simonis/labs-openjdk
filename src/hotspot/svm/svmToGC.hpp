@@ -67,6 +67,7 @@ extern "C" {
       char *offsets, int offsets_length,
       queueVmOperationFunc collect_for_allocation_op, queueVmOperationFunc collect_full_op, queueVmOperationFunc collect_degenerated_op, queueVmOperationFunc init_mark_op, queueVmOperationFunc final_mark_op, queueVmOperationFunc init_update_refs_op, queueVmOperationFunc final_update_refs_op, queueVmOperationFunc final_roots_op, queueVmOperationFunc handshake_fallback_op,
       vmOperationStatusFunc wait_for_vm_operation_execution_status, vmOperationStatusFunc update_vm_operation_execution_status, vmOperationDataFunc is_vm_operation_finished,
+      yieldToQueuedVmOperationsFunc yield_to_queued_vm_operations,
       fetchThreadStackFramesFunc fetch_thread_stack_frames, freeThreadStackFramesFunc free_thread_stack_frames,
       fetchContinuationStackFramesFunc fetch_continuation_stack_frames, freeContinuationStackFramesFunc free_continuation_stack_frames,
       fetchCodeInfosFunc fetch_code_infos, freeCodeInfosFunc free_code_infos, cleanRuntimeCodeCacheFunc clean_runtime_code_cache,

@@ -533,6 +533,17 @@ void ShenandoahHeap::initialize_mode() {
     } else if (strcmp(ShenandoahGCMode, "passive") == 0) {
       _gc_mode = new ShenandoahPassiveMode();
     } else if (strcmp(ShenandoahGCMode, "generational") == 0) {
+#ifdef SVM
+      if (!ShenandoahGenerational) {
+        // The generational mode requires a remembered set, which is maintained by card-marking
+        // barriers in compiled code. Whether those barriers were emitted is an image-build-time
+        // decision; without them, old-to-young references are missed and young objects get
+        // reclaimed while still reachable.
+        vm_exit_during_initialization(
+          "The 'generational' GC mode requires card-marking barriers in compiled code, but this "
+          "native image was built without them. Rebuild the image with -H:+ShenandoahGenerational.");
+      }
+#endif // SVM
       _gc_mode = new ShenandoahGenerationalMode();
     } else {
       vm_exit_during_initialization("Unknown -XX:ShenandoahGCMode option");

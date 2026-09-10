@@ -82,6 +82,13 @@ void ShenandoahGenerationalHeuristics::choose_collection_set(ShenandoahCollectio
     if (!_generation->contains(region)) {
       continue;
     }
+
+#ifdef SVM
+    if (region->is_image_heap()) {
+      // We don't collect the image heap.
+      continue;
+    }
+#endif // SVM
     size_t garbage = region->garbage();
     total_garbage += garbage;
     if (region->is_empty()) {

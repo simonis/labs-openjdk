@@ -81,6 +81,7 @@ queueVmOperationFunc SVMGlobalData::_try_initiate_conc_mark_op = nullptr;
 vmOperationStatusFunc SVMGlobalData::_wait_for_vm_operation_execution_status = nullptr;
 vmOperationStatusFunc SVMGlobalData::_update_vm_operation_execution_status = nullptr;
 vmOperationDataFunc SVMGlobalData::_is_vm_operation_finished = nullptr;
+yieldToQueuedVmOperationsFunc SVMGlobalData::_yield_to_queued_vm_operations = nullptr;
 fetchThreadStackFramesFunc SVMGlobalData::_fetch_thread_stack_frames = nullptr;
 freeThreadStackFramesFunc SVMGlobalData::_free_thread_stack_frames = nullptr;
 fetchContinuationStackFramesFunc SVMGlobalData::_fetch_continuation_stack_frames = nullptr;

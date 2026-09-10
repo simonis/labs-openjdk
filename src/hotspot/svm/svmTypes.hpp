@@ -39,6 +39,7 @@ class oopDesc;
 
 typedef void(*queueVmOperationFunc)(address, IsolateThread*, VM_OperationData*, VM_OperationWrapperData*);
 typedef void(*vmOperationStatusFunc)(address, IsolateThread*, VM_OperationWrapperData*, int);
+typedef bool(*yieldToQueuedVmOperationsFunc)(address, IsolateThread*, jlong);
 typedef bool(*vmOperationDataFunc)(address, IsolateThread*, VM_OperationWrapperData*);
 typedef StackFramesPerThread*(*fetchThreadStackFramesFunc)(address, IsolateThread*);
 typedef void*(*freeThreadStackFramesFunc)(address, IsolateThread*, StackFramesPerThread*);

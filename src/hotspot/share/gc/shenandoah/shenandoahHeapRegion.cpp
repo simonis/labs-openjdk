@@ -454,6 +454,26 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
     case _pinned_cset:
       st->print("|CSP");
       break;
+#ifdef SVM
+    case _closed_image_heap:
+      st->print("|CI ");
+      break;
+    case _closed_image_heap_humongous_start:
+      st->print("|CIH");
+      break;
+    case _closed_image_heap_humongous_cont:
+      st->print("|CIC");
+      break;
+    case _open_image_heap:
+      st->print("|OI ");
+      break;
+    case _open_image_heap_humongous_start:
+      st->print("|OIH");
+      break;
+    case _open_image_heap_humongous_cont:
+      st->print("|OIC");
+      break;
+#endif // SVM
     default:
       ShouldNotReachHere();
   }

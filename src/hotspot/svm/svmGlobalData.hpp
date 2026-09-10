@@ -208,6 +208,7 @@ struct SVMGlobalData {
   static vmOperationStatusFunc _wait_for_vm_operation_execution_status;
   static vmOperationStatusFunc _update_vm_operation_execution_status;
   static vmOperationDataFunc _is_vm_operation_finished;
+  static yieldToQueuedVmOperationsFunc _yield_to_queued_vm_operations;
   static fetchThreadStackFramesFunc _fetch_thread_stack_frames;
   static freeThreadStackFramesFunc _free_thread_stack_frames;
   static fetchContinuationStackFramesFunc _fetch_continuation_stack_frames;

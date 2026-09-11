@@ -137,9 +137,11 @@ In order to run Native Image with Shenandoah, you need to use the [simonis/GR-70
 
 ## Status
 
-As of August 2026, Shenandoah is known to correctly execute (with both `-XX:ShenandoahGCMode=passive` and the default `-XX:ShenandoahGCMode=satb`(only on x86_64)) the [Renaissance Benchmark Suite](https://github.com/simonis/RenaissanceNI) and SpecJBB. If you encounter eny issues, please report here.
+As of September 2026, Shenandoah is known to correctly execute in all `ShenandoahGCMode` modes (i.e. `passive`, `satb` and `generational` with `satb` being the default) the [Renaissance Benchmark Suite](https://github.com/simonis/RenaissanceNI) and SpecJBB. If you encounter eny issues, please report here. Concurrent Shenandoah (i.e. `satb` and `generational`) are currently only implemented on x86_64.
 
-We are currently working on supporting `-XX:ShenandoahGCMode=satb` on aarch64 as well.Generational Shenandoah support will also be available soon.
+We are working on supporting concurrent Shenandoah on aarch64 as well.
+
+Notice that with the latest changes, `ShenandoahGCMode` has been converted into a build time (i.e. 'hosted' option). You can only set it at native image build time with `-H:ShenandoahGCMode=<passive|satb|generational>`. If not set explicitely, it defaults to `satb`.
 
 ## Executing the Native JUnit tests
 

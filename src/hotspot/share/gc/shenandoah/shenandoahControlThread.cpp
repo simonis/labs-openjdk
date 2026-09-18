@@ -478,12 +478,8 @@ bool ShenandoahControlThread::try_notify_gc_waiters() {
 
 void ShenandoahControlThread::svm_run_inline_gc_cycle(GCCause::Cause cause) {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  // Decide how to collect. This mirrors the allocation-failure handling in run_service(), i.e. for
-  // an allocation failure we first try a STW degenerated GC if degenerated GCs are enabled and the
-  // heuristics allow it. A degenerated GC automatically upgrades to a full GC when it cannot make
-  // sufficient progress. For any other cause (e.g. an explicit System.gc()) we run a full GC right
-  // away. The ShenandoahGCSession is created in the VM operation's doit() so it serializes with a
-  // GC the control thread may have queued.
+  // The ShenandoahGCSession is created in the VM operation's doit() so it serializes with a GC the
+  // control thread may have queued.
   ShenandoahCollectorPolicy* const policy = heap->shenandoah_policy();
   ShenandoahHeuristics* const heuristics = heap->heuristics();
   const bool alloc_failure = ShenandoahCollectorPolicy::is_allocation_failure(cause);
@@ -496,27 +492,25 @@ void ShenandoahControlThread::svm_run_inline_gc_cycle(GCCause::Cause cause) {
     heuristics->record_requested_gc();
   }
 
-  if (alloc_failure && ShenandoahDegeneratedGC && heuristics->should_degenerate_cycle()) {
+  // Always run a full STW collection here, never a degenerated one. A degenerated cycle enters the
+  // cycle at a point that describes how far a *concurrent* cycle had progressed, so it depends on
+  // that cycle's state - a complete marking, a selected collection set, forwarded objects. This thread
+  // is not resuming the Control thread's cycle because a cancelled cycle can have left any of that
+  // behind, and a degenerated cycle from "outside the cycle" would then restart marking over a live
+  // collection set. A full GC recovers from any GC state, because its prologue cancels a pending
+  // concurrent mark, evacuation and update-refs, updates the roots when has_forwarded_objects() is set,
+  // and demotes the old collection set. This mirrors ShenandoahGenerationalControlThread::svm_run_inline_gc_cycle(),
+  // which always runs a full GC for the same reason. The path is rare - only reached when the VM operation
+  // thread itself cannot allocate - so robustness beats the cheaper degenerated cycle.
+  if (alloc_failure) {
     heuristics->record_allocation_failure_gc();
-    // We always degenerate from "outside the cycle". Unlike run_service(), we do not consume the
-    // control thread's _degen_point because that field records where the Control thread's concurrent
-    // cycle was cancelled but that is owned/mutated by the Control thread, and it is semantically
-    // unrelated to this thread's allocation failure. This thread is not resuming a concurrent
-    // cycle but instead starts a fresh, self-contained STW collection, which is exactly what
-    // _degenerated_outside_cycle means.
-    policy->record_alloc_failure_to_degenerated(ShenandoahGC::_degenerated_outside_cycle);
-    // The degenerated cycle falls back to a full GC automatically if it fails.
-    service_stw_degenerated_cycle(cause, ShenandoahGC::_degenerated_outside_cycle);
-  } else {
-    if (alloc_failure) {
-      heuristics->record_allocation_failure_gc();
-      policy->record_alloc_failure_to_full();
-    }
-    // Blow all soft references: this is the last resort GC.
-    heap->soft_ref_policy()->set_should_clear_all_soft_refs(true);
-    service_stw_full_cycle(cause);
+    policy->record_alloc_failure_to_full();
   }
+  // Blow all soft references: this is the last resort GC.
+  heap->soft_ref_policy()->set_should_clear_all_soft_refs(true);
+  service_stw_full_cycle(cause);
 }
+
 #endif // SVM
 
 } // namespace svm_gc

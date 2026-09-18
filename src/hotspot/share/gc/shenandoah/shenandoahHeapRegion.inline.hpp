@@ -52,10 +52,27 @@ HeapWord* ShenandoahHeapRegion::allocate_aligned(size_t size, ShenandoahAllocReq
 
   HeapWord* aligned_obj = (HeapWord*) align_up(orig_top, alignment_in_bytes);
   size_t pad_words = aligned_obj - orig_top;
+#ifdef SVM
+  // The gap in front of the aligned object has to be filled with a filler object, so it must be at
+  // least min_fill_size() words. Upstream a single alignment step is enough to reach that, because
+  // the smallest fillable object is smaller than the alignment (a card). That does not hold in SVM
+  // with -H:AdditionalHeaderBytes because the object header, and hence min_fill_size(), can exceed
+  // the card alignment, so keep stepping. Without this, the gap stays too small and fill_with_object()
+  // writes a filler whose size underflows.
+  while ((pad_words > 0) && (pad_words < ShenandoahHeap::min_fill_size())) {
+#else
   if ((pad_words > 0) && (pad_words < ShenandoahHeap::min_fill_size())) {
+#endif // SVM
     pad_words += alignment_in_words;
     aligned_obj += alignment_in_words;
   }
+
+#ifdef SVM
+  if (aligned_obj >= end()) {
+    // Not even the padding fits into this region.
+    return nullptr;
+  }
+#endif // SVM
 
   if (pointer_delta(end(), aligned_obj) < size) {
     // Shrink size to fit within available space and align it

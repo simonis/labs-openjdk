@@ -200,18 +200,19 @@ class markWord {
   }
 
   inline void print_on(outputStream* st) const {
-  if (is_marked()) {  // last bits = 11
-    st->print(" marked(" INTPTR_FORMAT ")", value());
-  } else {
+    if (is_marked()) {  // last bits = 11
+      // A marked word holds a forwarding pointer, it has neither a hash nor an age.
+      st->print(" marked(" INTPTR_FORMAT ")", value());
+      return;
+    }
     st->print(" mark(");
     if (has_no_hash()) {
       st->print(" no_hash");
     } else {
       st->print(" hash=" INTPTR_FORMAT, hash());
     }
+    st->print(" age=%d)", age());
   }
-  st->print(" age=%d)", age());
-}
 
 };
 

@@ -120,7 +120,9 @@ private:
   bool check_cancellation_or_degen(ShenandoahGC::ShenandoahDegenPoint point);
 
   // Executes one GC cycle
-  void run_gc_cycle(const ShenandoahGCRequest& request);
+  // The snapshot is the value of _svm_inline_gc_count when the cycle decision in request was
+  // computed, see the staleness check in run_gc_cycle().
+  void run_gc_cycle(const ShenandoahGCRequest& request SVM_ONLY(COMMA size_t svm_inline_gc_count_at_decision));
 
   // Returns true if the old generation marking completed (i.e., final mark executed for old generation).
   bool resume_concurrent_old_cycle(ShenandoahOldGeneration* generation, GCCause::Cause cause);

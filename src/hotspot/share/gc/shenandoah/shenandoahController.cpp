@@ -121,40 +121,8 @@ void ShenandoahController::svm_release_cycle_ownership() {
   Atomic::store(&_svm_cycle_state, SVM_CYCLE_IDLE);
 }
 
-void ShenandoahController::svm_mark_cycle_parked() {
-  assert(Thread::current() == (Thread*)this, "only the owning Control thread parks");
-  assert(Atomic::load(&_svm_cycle_state) == SVM_CYCLE_CONTROL, "must own the cycle");
-  Atomic::store(&_svm_cycle_state, SVM_CYCLE_CONTROL_PARKED);
-}
-
-void ShenandoahController::svm_unmark_cycle_parked() {
-  // No competing write can happen here: the VM operation thread only takes the cycle over while this
-  // thread waits, and a borrowed inline GC has handed the state back (VM_INLINE_BORROWED ->
-  // CONTROL_PARKED) before the operation this thread waited for could execute.
-  assert(Atomic::load(&_svm_cycle_state) == SVM_CYCLE_CONTROL_PARKED, "borrowed cycle must have been handed back");
-  Atomic::store(&_svm_cycle_state, SVM_CYCLE_CONTROL);
-}
-
-bool ShenandoahController::svm_try_borrow_parked_cycle() {
-  assert(Thread::current()->is_VM_thread(), "must be called on the VM operation thread");
-  // Only a parked owner's cycle can be taken over: the owner enters CONTROL_PARKED before it waits
-  // and leaves it after it returns, so observing that state here means it executes no GC code.
-  // And only if the owner has no cycle open the inline GC opens and closes a cycle of its own,
-  // and a GC must not run inside another thread's live cycle, whose phases, marking state and
-  // generation bookkeeping it would invalidate.
-  if (ShenandoahHeap::heap()->gc_cause() != GCCause::_no_gc) {
-    return false;
-  }
-  if (Atomic::cmpxchg(&_svm_cycle_state, SVM_CYCLE_CONTROL_PARKED, SVM_CYCLE_VM_INLINE_BORROWED) != SVM_CYCLE_CONTROL_PARKED) {
-    return false;
-  }
-  log_info(gc)("Running a GC inline on the VM operation thread, on the cycle of the parked Control thread");
-  return true;
-}
-
 bool ShenandoahController::svm_inline_gc_in_progress() const {
-  const SVMCycleState state = Atomic::load(&_svm_cycle_state);
-  return state == SVM_CYCLE_VM_INLINE || state == SVM_CYCLE_VM_INLINE_BORROWED;
+  return Atomic::load(&_svm_cycle_state) == SVM_CYCLE_VM_INLINE;
 }
 
 void ShenandoahController::svm_finish_inline_gc() {
@@ -171,14 +139,8 @@ void ShenandoahController::svm_finish_inline_gc() {
   // Publish completion BEFORE leaving the inline state, so a Control thread that subsequently
   // acquires the cycle reliably observes the increment.
   Atomic::inc(&_svm_inline_gc_count);
-  const SVMCycleState state = Atomic::load(&_svm_cycle_state);
-  if (state == SVM_CYCLE_VM_INLINE_BORROWED) {
-    // Hand the cycle back to its still parked owner.
-    Atomic::store(&_svm_cycle_state, SVM_CYCLE_CONTROL_PARKED);
-  } else {
-    assert(state == SVM_CYCLE_VM_INLINE, "must be");
-    Atomic::store(&_svm_cycle_state, SVM_CYCLE_IDLE);
-  }
+  assert(Atomic::load(&_svm_cycle_state) == SVM_CYCLE_VM_INLINE, "must own the cycle as an inline GC");
+  Atomic::store(&_svm_cycle_state, SVM_CYCLE_IDLE);
 }
 
 void ShenandoahController::run_gc_on_vm_thread(GCCause::Cause cause) {
@@ -192,11 +154,12 @@ void ShenandoahController::run_gc_on_vm_thread(GCCause::Cause cause) {
     return;
   }
 
-  // Take the cycle if it is idle, or if its owner is a Control thread that is parked waiting for
-  // a STW VM operation with no cycle opened yet, in which case only this thread can make progress
-  // (see ShenandoahSVMParkedForVMOperationMark). Otherwise, hand the request to the running owner.
-  if (Atomic::cmpxchg(&_svm_cycle_state, SVM_CYCLE_IDLE, SVM_CYCLE_VM_INLINE) != SVM_CYCLE_IDLE &&
-      !svm_try_borrow_parked_cycle()) {
+  // An inline GC may only run while no Control thread cycle is in flight: it is a self-contained STW
+  // collection that resets the GC state (marking, cancellation, forwarding), which a cycle in flight
+  // depends on. If a Control thread owns the cycle, hand the request over instead - for an allocation
+  // failure svm_defer_gc_request() cancels the cycle and yields to the VM operation queue, which
+  // executes the owner's own STW collection on this thread if it already queued one.
+  if (Atomic::cmpxchg(&_svm_cycle_state, SVM_CYCLE_IDLE, SVM_CYCLE_VM_INLINE) != SVM_CYCLE_IDLE) {
     svm_defer_gc_request(cause);
     return;
   }

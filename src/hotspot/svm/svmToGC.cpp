@@ -29,6 +29,7 @@
 #include "ci/ciUtilities.hpp"
 #include "code/nmethod.hpp"
 #include "exports/sharedGCStructs.h"
+#if INCLUDE_G1GC
 #include "exports/g1GCStructs.h"
 #include "gc/g1/g1BarrierSet.inline.hpp"
 #include "gc/g1/g1CardTable.hpp"
@@ -37,6 +38,7 @@
 #include "gc/g1/g1ThreadLocalData.hpp"
 #include "gc/g1/g1VMOperations.hpp"
 #include "gc/g1/g1HeapRegion.hpp"
+#endif // INCLUDE_G1GC
 #include "gc/shared/cardTable.hpp"
 #include "gc/shared/collectedHeap.inline.hpp"
 #include "gc/shared/gcArguments.hpp"
@@ -90,6 +92,8 @@
 
 
 namespace svm_gc {
+
+#if INCLUDE_G1GC
 
 static inline jlong convert_size_t_to_jlong(size_t val) {
   // In the 64-bit vm, a size_t can overflow a jlong (which is signed).
@@ -789,5 +793,7 @@ EXPORT_FOR_SVM size_t svm_g1gc_get_used_memory_after_last_gc() {
 }
 
 } // extern C
+
+#endif // INCLUDE_G1GC
 
 } // namespace svm_gc

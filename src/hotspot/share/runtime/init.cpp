@@ -73,8 +73,10 @@ void perfMemory_init();
 void SuspendibleThreadSet_init();
 #ifndef SVM
 void ExternalsRecorder_init(); // After mutex_init() and before CodeCache_init
+#endif // !SVM
 
 // Initialization done by Java thread in init_globals()
+#ifndef SVM
 void management_init();
 void bytecodes_init();
 void classLoader_init1();
@@ -114,10 +116,12 @@ bool universe_post_init();  // must happen after compiler_init
 void javaClasses_init();    // must happen after vtable initialization
 void compiler_stubs_init(bool in_compiler_thread); // compiler's StubRoutines stubs
 void final_stubs_init();    // final StubRoutines stubs
+#endif // !SVM
 
 // Do not disable thread-local-storage, as it is important for some
 // JNI/JVM/JVMTI functions and signal handlers to work properly
 // during VM shutdown
+#ifndef SVM
 void perfMemory_exit();
 #endif // !SVM
 void ostream_exit();

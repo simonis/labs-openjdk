@@ -679,9 +679,11 @@ FILE* defaultStream::_error_stream  = stderr;
 #ifndef SVM
 void defaultStream::init() {
   _inited = true;
+#ifndef SVM
   if (LogVMOutput || LogCompilation) {
     init_log();
   }
+#endif // !SVM
 }
 #endif // !SVM
 
@@ -1043,7 +1045,9 @@ void ostream_abort() {
 #ifndef SVM
   if (defaultStream::instance != nullptr) {
     static char buf[4096];
+#ifndef SVM
     defaultStream::instance->finish_log_on_error(buf, sizeof(buf));
+#endif // !SVM
   }
 #endif // !SVM
 }

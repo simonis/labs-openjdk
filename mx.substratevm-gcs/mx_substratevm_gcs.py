@@ -39,11 +39,81 @@ suite = mx.suite('substratevm-gcs')
 os_arch_couplet = '%s_%s' % (mx.get_os(), mx.get_arch())
 
 REACHABILITY_ANALYSIS_ENV = 'SVM_GC_REACHABILITY_ANALYSIS'
-PRODUCT_STATIC_TARGETS = ('build_product_ur_a', 'build_product_cr_a')
-REACHABILITY_ANALYSIS_TARGETS = (
-    'build_product_ur_a', 'build_product_cr_a',
-    'build_product_ur_so', 'build_product_cr_so',
-    'build_debug_ur_so', 'build_debug_cr_so',
+
+
+class _GC:
+    """Describes a single garbage collector that can be built from the shared source tree.
+
+    The source tree contains the union of the sources of all supported GCs. Each GC is built
+    from the shared/common sources plus its own GC-specific sources, while the sources that are
+    exclusive to the *other* GCs are excluded from its build.
+
+    Attributes:
+        name:            Short identifier used as a prefix for object-file subdirectories and
+                         for the Ninja phony targets (e.g. 'g1', 'genshen').
+        lib_name:        Base name of the produced library (e.g. 'g1gc' -> libg1gc-ur.a).
+        gc_defines:      GC-specific preprocessor defines (which INCLUDE_*GC macro is enabled).
+        exclusive_dirs:  Source (sub)directories, relative to the project root, that contain
+                         sources exclusive to this GC. Files below these directories are only
+                         compiled into this GC's libraries.
+        exclusive_files: Individual shared-tree source files (relative to the project root) that
+                         are only required by this GC even though they live outside of
+                         'exclusive_dirs'. They are excluded from every other GC's build.
+    """
+
+    def __init__(self, name, lib_name, gc_defines, exclusive_dirs, exclusive_files):
+        self.name = name
+        self.lib_name = lib_name
+        self.gc_defines = gc_defines
+        self.exclusive_dirs = exclusive_dirs
+        self.exclusive_files = exclusive_files
+
+
+# The garbage collectors that are built from the shared source tree.
+#
+# 'exclusive_dirs' and 'exclusive_files' classify the GC-specific sources. Everything that is not
+# exclusive to some GC is considered shared/common and is compiled into every GC's libraries.
+GCS = (
+    _GC(
+        name='g1',
+        lib_name='g1gc',
+        gc_defines=['-DINCLUDE_G1GC=1', '-DINCLUDE_SHENANDOAHGC=0'],
+        exclusive_dirs=['share/gc/g1', 'svm/share/gc/g1'],
+        exclusive_files=[],
+    ),
+    _GC(
+        name='genshen',
+        lib_name='shenandoahgc',
+        gc_defines=['-DINCLUDE_G1GC=0', '-DINCLUDE_SHENANDOAHGC=1'],
+        exclusive_dirs=['share/gc/shenandoah', 'svm/share/gc/shenandoah'],
+        # Shared-tree files that only Shenandoah needs. Excluding these from the G1 build restores
+        # the original (pre-merge) G1 source set.
+        exclusive_files=[
+            'share/gc/shared/stringdedup/stringDedup.cpp',
+            'share/logging/logFileOutput.cpp',
+            'share/runtime/handshake.cpp',
+            'share/utilities/events.cpp',
+            'share/utilities/formatBuffer.cpp',
+            'svm/share/oops/objArrayOop.cpp',
+        ],
+    ),
+)
+
+
+def _static_target(gc, debug_level, reference_mode):
+    return f'build_{gc.name}_{debug_level}_{reference_mode}_a'
+
+
+PRODUCT_STATIC_TARGETS = tuple(
+    _static_target(gc, 'product', reference_mode)
+    for gc in GCS
+    for reference_mode in ('ur', 'cr')
+)
+REACHABILITY_ANALYSIS_TARGETS = tuple(
+    f'build_{gc.name}_{debug_level}_{reference_mode}_{target_file_format}'
+    for gc in GCS
+    for debug_level, target_file_format in (('product', 'a'), ('product', 'so'), ('debug', 'so'))
+    for reference_mode in ('ur', 'cr')
 )
 
 
@@ -126,9 +196,9 @@ class _TargetBuildConfig:
         self.arch_cpu = 'x86' if self.arch_suffix == 'amd64' else 'aarch64'
         self.os_cpu = f'{self.platform}_{self.arch_cpu}'
         self.defines = [
-            '-DSVM', '-DINCLUDE_SUFFIX_OS=_' + self.platform, '-D_LP64=1', '-DINCLUDE_JVMCI=1', '-DINCLUDE_JFR=0', '-DINCLUDE_G1GC=1', '-DINCLUDE_JVMTI=0',
+            '-DSVM', '-DINCLUDE_SUFFIX_OS=_' + self.platform, '-D_LP64=1', '-DINCLUDE_JVMCI=1', '-DINCLUDE_JFR=0', '-DINCLUDE_JVMTI=0',
             '-DINCLUDE_SERVICES=0', '-DINCLUDE_MANAGEMENT=0', '-DINCLUDE_CDS=0', '-DINCLUDE_CMSGC=0', '-DINCLUDE_EPSILONGC=0', '-DINCLUDE_PARALLELGC=0',
-            '-DINCLUDE_SERIALGC=0', '-DINCLUDE_SHENANDOAHGC=0', '-DINCLUDE_ZGC=0', '-DINCLUDE_NMT=0', '-DVM_LITTLE_ENDIAN', '-DIGNORE_CODE_RELATED_OOPS=1',
+            '-DINCLUDE_SERIALGC=0', '-DINCLUDE_ZGC=0', '-DINCLUDE_NMT=0', '-DVM_LITTLE_ENDIAN', '-DIGNORE_CODE_RELATED_OOPS=1',
             '-DSUPPORTS_CLOCK_MONOTONIC', '-D__STDC_FORMAT_MACROS', '-D__STDC_LIMIT_MACROS', '-D__STDC_CONSTANT_MACROS', '-D_FILE_OFFSET_BITS=64', '-D_REENTRANT',
         ]
         self.debug_level_defines = {
@@ -214,8 +284,8 @@ class _TargetBuildConfig:
                     self.defines += ['-DMUSL_LIBC']
                 self.shared_library_linker_flags = ['-shared', '-Wl,-z,noexecstack']
 
-    def target_file(self, debug_level, reference_mode, target_file_format):
-        return f'{self.target_prefix}g1gc{self._debug_level_file_suffix(debug_level)}-{reference_mode}{self.target_ext_by_format[target_file_format]}'
+    def target_file(self, gc, debug_level, reference_mode, target_file_format):
+        return f'{self.target_prefix}{gc.lib_name}{self._debug_level_file_suffix(debug_level)}-{reference_mode}{self.target_ext_by_format[target_file_format]}'
 
     def shared_library_linker_flags_for(self, target_file):
         # Windows uses a distinct import library per DLL to prevent naming conflicts with the logic that builds the static libs
@@ -231,11 +301,14 @@ class _TargetBuildConfig:
                 flags += ['-Wl,--gc-sections', f'-Wl,-Map={target_file}.reachability.map']
         return flags
 
-    def object_file(self, source_file, debug_level, reference_mode, target_file_format):
+    def object_file(self, gc, source_file, debug_level, reference_mode, target_file_format):
         base, _ = os.path.splitext(source_file)
-        return f'{debug_level}-{reference_mode}{self.target_ext_by_format[target_file_format]}/{base}{self.object_ext}'
+        return f'{gc.name}-{debug_level}-{reference_mode}{self.target_ext_by_format[target_file_format]}/{base}{self.object_ext}'
 
-    def source_files(self, project_root, extension):
+    def source_files(self, project_root, extension, gc):
+        # Sources that are exclusive to a *different* GC must not be compiled into this GC's library.
+        other_gc_dirs = [d for other in GCS if other is not gc for d in other.exclusive_dirs]
+        other_gc_files = {f for other in GCS if other is not gc for f in other.exclusive_files}
         result = []
         for root, _, files in os.walk(project_root):
             for filename in files:
@@ -245,9 +318,17 @@ class _TargetBuildConfig:
                 source_file = os.path.relpath(os.path.join(root, filename), project_root).replace(os.sep, '/')
                 if self._platform_excluded(source_file) or self._cpu_excluded(source_file):
                     continue
+                if self._gc_excluded(source_file, other_gc_dirs, other_gc_files):
+                    continue
 
                 result.append(source_file)
         return sorted(result)
+
+    @staticmethod
+    def _gc_excluded(source_file, other_gc_dirs, other_gc_files):
+        if source_file in other_gc_files:
+            return True
+        return any(source_file == d or source_file.startswith(f'{d}/') for d in other_gc_dirs)
 
     def include_dirs(self):
         return [
@@ -256,13 +337,13 @@ class _TargetBuildConfig:
             f'mocks/cpu/{self.arch_cpu}', f'mocks/os_cpu/{self.os_cpu}',
         ]
 
-    def compiler_flags_for(self, debug_level, target_file_format, reference_mode_defines):
+    def compiler_flags_for(self, gc, debug_level, target_file_format, reference_mode_defines):
         return (
             self.compiler_flags +
             self.debug_level_compiler_flags[debug_level] +
             self.debug_level_defines[debug_level] +
             self.compiler_flags_by_format[target_file_format] +
-            self.defines + reference_mode_defines
+            self.defines + gc.gc_defines + reference_mode_defines
         )
 
     def _platform_excluded(self, source_file):
@@ -369,39 +450,43 @@ class HotspotNativeProject(mx_native.NinjaProject):
             gen.comment("Toolchain configuration")
             gen.include(os.path.join(task.toolchain.get_path(), 'toolchain.ninja'))
             config = _TargetBuildConfig(task.toolchain.spec.target)
-            cpp_sources = config.source_files(self.dir, '.cpp')
-            asm_sources = config.source_files(self.dir, '.S')
 
             if config.platform == 'linux' and _toolchain_supports_compiler_flag(task.toolchain, '-fno-lifetime-dse'):
                 config.compiler_flags += ['-fno-lifetime-dse']
 
             gen.include_dirs(config.include_dirs())
 
-            reference_mode_targets = []
-            for reference_mode, reference_mode_defines in config.REFERENCE_MODES:
-                all_targets = []
-                for debug_level in config.DEBUG_LEVELS:
-                    for target_file_format in config.TARGET_FILE_FORMATS:
-                        cflags = config.compiler_flags_for(debug_level, target_file_format, reference_mode_defines)
-                        object_files = []
-                        for source_file in cpp_sources:
-                            object_file = config.object_file(source_file, debug_level, reference_mode, target_file_format)
-                            object_files += gen.n.build(object_file, 'cxx', f'$project/{source_file}', variables={'cflags': cflags})
-                        for source_file in asm_sources:
-                            object_file = config.object_file(source_file, debug_level, reference_mode, target_file_format)
-                            object_files += gen.n.build(object_file, 'asm', f'$project/{source_file}', variables={'cflags': cflags})
-                        target_file = config.target_file(debug_level, reference_mode, target_file_format)
-                        if target_file_format == 'a':
-                            gen.ar(target_file, object_files)
-                        else:
-                            gen.n.build(target_file, 'linkxx', object_files, variables={
-                                'ldflags': config.shared_library_linker_flags_for(target_file),
-                                'ldlibs': config.shared_library_linker_libs,
-                            })
-                        name = f'build_{debug_level}_{reference_mode}_{target_file_format}'
-                        all_targets += gen.n.build(name, 'phony', target_file)
-                reference_mode_targets += gen.n.build(f'build_{reference_mode}', 'phony', all_targets)
-            gen.n.build('build_all', 'phony', reference_mode_targets)
+            all_gc_targets = []
+            for gc in GCS:
+                cpp_sources = config.source_files(self.dir, '.cpp', gc)
+                asm_sources = config.source_files(self.dir, '.S', gc)
+
+                reference_mode_targets = []
+                for reference_mode, reference_mode_defines in config.REFERENCE_MODES:
+                    ref_targets = []
+                    for debug_level in config.DEBUG_LEVELS:
+                        for target_file_format in config.TARGET_FILE_FORMATS:
+                            cflags = config.compiler_flags_for(gc, debug_level, target_file_format, reference_mode_defines)
+                            object_files = []
+                            for source_file in cpp_sources:
+                                object_file = config.object_file(gc, source_file, debug_level, reference_mode, target_file_format)
+                                object_files += gen.n.build(object_file, 'cxx', f'$project/{source_file}', variables={'cflags': cflags})
+                            for source_file in asm_sources:
+                                object_file = config.object_file(gc, source_file, debug_level, reference_mode, target_file_format)
+                                object_files += gen.n.build(object_file, 'asm', f'$project/{source_file}', variables={'cflags': cflags})
+                            target_file = config.target_file(gc, debug_level, reference_mode, target_file_format)
+                            if target_file_format == 'a':
+                                gen.ar(target_file, object_files)
+                            else:
+                                gen.n.build(target_file, 'linkxx', object_files, variables={
+                                    'ldflags': config.shared_library_linker_flags_for(target_file),
+                                    'ldlibs': config.shared_library_linker_libs,
+                                })
+                            name = f'build_{gc.name}_{debug_level}_{reference_mode}_{target_file_format}'
+                            ref_targets += gen.n.build(name, 'phony', target_file)
+                    reference_mode_targets += gen.n.build(f'build_{gc.name}_{reference_mode}', 'phony', ref_targets)
+                all_gc_targets += gen.n.build(f'build_{gc.name}', 'phony', reference_mode_targets)
+            gen.n.build('build_all', 'phony', all_gc_targets)
 
             targets_str = mx.get_env('SVM_GC_TARGETS')
             if targets_str:
@@ -422,12 +507,16 @@ class HotspotNativeProject(mx_native.NinjaProject):
 
         build_all = 'build_all' in targets
         subst_engine = mx_subst.as_engine(mx_subst.results_substitutions)
-        for debug_level in _TargetBuildConfig.DEBUG_LEVELS:
-            for reference_mode, _ in _TargetBuildConfig.REFERENCE_MODES:
-                if build_all or f'build_{reference_mode}' in targets or f'build_{debug_level}_{reference_mode}_a' in targets:
-                    suffix = reference_mode if debug_level == 'product' else f'{debug_level}-{reference_mode}'
-                    result = subst_engine.substitute(f'<staticlib:g1gc-{suffix}>', dependency=self)
-                    yield self._archivable_result(use_relpath, archive_dir, result)
+        for gc in GCS:
+            for debug_level in _TargetBuildConfig.DEBUG_LEVELS:
+                for reference_mode, _ in _TargetBuildConfig.REFERENCE_MODES:
+                    if (build_all
+                            or f'build_{gc.name}' in targets
+                            or f'build_{gc.name}_{reference_mode}' in targets
+                            or f'build_{gc.name}_{debug_level}_{reference_mode}_a' in targets):
+                        suffix = reference_mode if debug_level == 'product' else f'{debug_level}-{reference_mode}'
+                        result = subst_engine.substitute(f'<staticlib:{gc.lib_name}-{suffix}>', dependency=self)
+                        yield self._archivable_result(use_relpath, archive_dir, result)
 
     def _build_task(self, target_arch, args, toolchain=None):
         return HotspotNativeBuildTask(args, self, target_arch, toolchain=toolchain)

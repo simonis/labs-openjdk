@@ -76,7 +76,9 @@ class os::Linux {
 
   static void rebuild_cpu_to_node_map();
   static void rebuild_nindex_to_node_map();
+#endif // !SVM
   static GrowableArray<int>* cpu_to_node()    { return _cpu_to_node; }
+#ifndef SVM
   static GrowableArray<int>* nindex_to_node()  { return _nindex_to_node; }
 
   static void print_process_memory_info(outputStream* st);

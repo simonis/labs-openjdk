@@ -275,11 +275,19 @@ struct SVMGlobalData {
   static queueVmOperationFunc _execute_pause_remark_op;
   static queueVmOperationFunc _execute_pause_cleanup_op;
   static queueVmOperationFunc _collect_full_op;
+  static queueVmOperationFunc _collect_degenerated_op;
+  static queueVmOperationFunc _init_mark_op;
+  static queueVmOperationFunc _final_mark_op;
+  static queueVmOperationFunc _init_update_refs_op;
+  static queueVmOperationFunc _final_update_refs_op;
+  static queueVmOperationFunc _final_roots_op;
+  static queueVmOperationFunc _handshake_fallback_op;
   static queueVmOperationFunc _verify_heap_op;
   static queueVmOperationFunc _try_initiate_conc_mark_op;
   static vmOperationStatusFunc _wait_for_vm_operation_execution_status;
   static vmOperationStatusFunc _update_vm_operation_execution_status;
   static vmOperationDataFunc _is_vm_operation_finished;
+  static yieldToQueuedVmOperationsFunc _yield_to_queued_vm_operations;
   static fetchThreadStackFramesFunc _fetch_thread_stack_frames;
   static freeThreadStackFramesFunc _free_thread_stack_frames;
   static fetchContinuationStackFramesFunc _fetch_continuation_stack_frames;
@@ -290,6 +298,8 @@ struct SVMGlobalData {
   static threadStateTransitionFunc _transition_vm_to_native;
   static fastThreadStateTransitionFunc _try_fast_transition_native_to_vm;
   static threadStateTransitionFunc _slow_transition_native_to_vm;
+  static threadsLockFunc _lock_threads_read;
+  static threadsLockFunc _unlock_threads_read;
 
   static void initialize_offsets(char *offsets, int offsets_length);
   static void verify_offsets(bool use_perf_data);

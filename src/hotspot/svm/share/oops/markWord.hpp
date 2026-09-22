@@ -29,6 +29,7 @@
 #include "oops/compressedKlass.hpp"
 #include "oops/oopsHierarchy.hpp"
 #include "runtime/globals.hpp"
+#include "utilities/ostream.hpp"
 
 #include <type_traits>
 
@@ -63,6 +64,9 @@ class markWord {
 
   static markWord from_pointer(void* ptr) {
     return markWord((uintptr_t)ptr);
+  }
+  void* to_pointer() const {
+    return (void*)_value;
   }
 
   bool operator==(const markWord& other) const {
@@ -135,6 +139,9 @@ class markWord {
     return !has_no_hash();
   }
 
+  // used to encode pointers during GC
+  markWord clear_lock_bits() const { return markWord((value() & SVM_ONLY(~mark_mask_in_place) NOT_SVM(~lock_mask_in_place))); }
+
   // age operations
   markWord set_marked()   { return markWord((value() & ~mark_mask_in_place) | marked_value); }
   markWord set_unmarked() { return markWord(value() & ~mark_mask_in_place); }
@@ -191,6 +198,21 @@ class markWord {
   inline oop forwardee() const {
     return cast_to_oop(decode_pointer());
   }
+
+  inline void print_on(outputStream* st) const {
+  if (is_marked()) {  // last bits = 11
+    st->print(" marked(" INTPTR_FORMAT ")", value());
+  } else {
+    st->print(" mark(");
+    if (has_no_hash()) {
+      st->print(" no_hash");
+    } else {
+      st->print(" hash=" INTPTR_FORMAT, hash());
+    }
+  }
+  st->print(" age=%d)", age());
+}
+
 };
 
 // Support atomic operations.

@@ -46,6 +46,8 @@ suite = {
             "results": [
                 "<staticlib:g1gc-cr>",
                 "<staticlib:g1gc-ur>",
+                "<staticlib:shenandoahgc-cr>",
+                "<staticlib:shenandoahgc-ur>",
             ],
             "multitarget": {
                 "libc": ["default", "glibc", "musl"],

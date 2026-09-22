@@ -1663,7 +1663,7 @@ void VMError::report_and_die(int id, const char* message, const char* detail_fmt
     } else if (message) {
       out.print_cr("#  Error: %s", message);
     } else {
-      out.print_cr("# Fatal error within G1 code.");
+      out.print_cr("# Fatal error within GC code.");
     }
 
     os::die();

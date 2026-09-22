@@ -710,7 +710,9 @@ void JVMFlag::printSetFlags(outputStream* out) {
 
 #ifndef SVM
 void JVMFlag::verify() {
+#ifndef SVM
   assert(Arguments::check_vm_args_consistency(), "Some flag settings conflict");
+#endif // !SVM
 }
 #endif // !SVM
 

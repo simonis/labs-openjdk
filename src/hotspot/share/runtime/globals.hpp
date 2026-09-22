@@ -189,7 +189,7 @@ const int ObjectAlignmentInBytes = 8;
   product(bool, AlwaysSafeConstructors, false, EXPERIMENTAL,                \
           "Force safe construction, as if all fields are final.")           \
                                                                             \
-  product(bool, UnlockDiagnosticVMOptions, trueInDebug, DIAGNOSTIC,         \
+  ni_runtime(bool, UnlockDiagnosticVMOptions, trueInDebug, DIAGNOSTIC,      \
           "Enable normal processing of flags relating to field diagnostics")\
                                                                             \
   product(bool, UnlockExperimentalVMOptions, false, EXPERIMENTAL,           \
@@ -471,7 +471,7 @@ const int ObjectAlignmentInBytes = 8;
   product(bool, LogEvents, true, DIAGNOSTIC,                                \
           "Enable the various ring buffer event logs")                      \
                                                                             \
-  product(int, LogEventsBufferEntries, 20, DIAGNOSTIC,                      \
+  ni_runtime(int, LogEventsBufferEntries, 20, DIAGNOSTIC,                   \
           "Number of ring buffer event logs")                               \
           range(1, NOT_LP64(1*K) LP64_ONLY(1*M))                            \
                                                                             \

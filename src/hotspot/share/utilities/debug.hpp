@@ -308,10 +308,10 @@ void warning(const char* format, ...);
 
 #define STATIC_ASSERT(Cond) static_assert((Cond), #Cond)
 
-#ifndef SVM
 // out of memory reporting
 void report_java_out_of_memory(const char* message);
 
+#ifndef SVM
 // Returns true iff the address p is readable and *(intptr_t*)p != errvalue
 extern "C" bool dbg_is_safe(const void* p, intptr_t errvalue);
 extern "C" bool dbg_is_good_oop(oopDesc* o);

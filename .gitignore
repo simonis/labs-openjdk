@@ -13,3 +13,11 @@ src/build
 /.cache
 /.jdk-update-state.json
 /.jdk-update-state.json.lock
+/.gdbinit
+/.lldbinit
+**/core.[0-9]*
+*.rej
+*.orig
+*~
+/.ccls-cache
+

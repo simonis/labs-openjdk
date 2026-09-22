@@ -25,7 +25,6 @@
 #ifndef SHARE_OOPS_PODOOP_HPP
 #define SHARE_OOPS_PODOOP_HPP
 
-
 #include "oops/arrayOop.hpp"
 #include "runtime/handles.hpp"
 #include "runtime/stackChunkFrameStream.hpp"

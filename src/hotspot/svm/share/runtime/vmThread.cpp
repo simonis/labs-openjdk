@@ -24,6 +24,10 @@
 
 #include "compiler/compileBroker.hpp"
 #include "gc/shared/collectedHeap.hpp"
+#if INCLUDE_SHENANDOAHGC
+#include "gc/shenandoah/shenandoahController.hpp"
+#include "gc/shenandoah/shenandoahHeap.inline.hpp"
+#endif
 #include "jfr/jfrEvents.hpp"
 #include "jfr/support/jfrThreadId.hpp"
 #include "logging/log.hpp"
@@ -52,8 +56,14 @@
 #include "utilities/vmError.hpp"
 
 
-
 namespace svm_gc {
+
+VM_Operation* VMThread::_cur_vm_operation = nullptr;
+
+void VMThread::evaluate_operation(VM_Operation* op) {
+  ResourceMark rm;
+  op->evaluate();
+}
 
 void VMThread::execute(VM_Operation* op) {
   Thread* current_thread = Thread::current();
@@ -92,6 +102,14 @@ void VMThread::execute(VM_Operation* op) {
   // - the VM thread allocates a Java object and needs a slow-path allocation. For that, it tries to lock the
   //   Heap_lock and gets blocked as thread B holds the Heap_lock.
 
+#if INCLUDE_SHENANDOAHGC
+  // If the caller is the Shenandoah Control thread executing a cycle, it is about to wait for the
+  // VM operation thread. Mark it parked, so that the VM operation thread can run a GC on the parked
+  // cycle if it needs one to complete its current operation. Doing this here covers every VM
+  // operation the Control thread executes (see ShenandoahSVMParkedForVMOperationMark).
+  ShenandoahSVMParkedForVMOperationMark parked(ShenandoahHeap::heap()->control_thread());
+#endif
+
   address heap_base = CompressedOops::base();
   IsolateThread *isolate_thread = nullptr;
   if (current_thread->is_Java_thread()) {
@@ -106,6 +124,11 @@ void VMThread::execute(VM_Operation* op) {
   VM_OperationData *op_data = op->data();
   VM_OperationWrapperData wrapper_data;
   memset(&wrapper_data, 0, sizeof(VM_OperationWrapperData));
+  // Note: _cur_vm_operation is set on the VM operation thread around the actual
+  // execution of the operation (see svm_gc_execute_vm_operation_main), not here.
+  // VMThread::execute() may run on a queuing thread (e.g. the GC control thread),
+  // and writing the shared _cur_vm_operation from a queuing thread races with the
+  // VM operation thread executing nested operations.
   switch (op->type()) {
     case VM_Operation::VMOp_G1CollectForAllocation:
       SVMGlobalData::_collect_for_allocation_op(heap_base, isolate_thread, op_data, &wrapper_data);
@@ -124,6 +147,29 @@ void VMThread::execute(VM_Operation* op) {
       break;
     case VM_Operation::VMOp_G1TryInitiateConcMark:
       SVMGlobalData::_try_initiate_conc_mark_op(heap_base, isolate_thread, op_data, &wrapper_data);
+    case VM_Operation::VMOp_ShenandoahFullGC:
+      SVMGlobalData::_collect_full_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahDegeneratedGC:
+      SVMGlobalData::_collect_degenerated_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahInitMark:
+      SVMGlobalData::_init_mark_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahFinalMarkStartEvac:
+      SVMGlobalData::_final_mark_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahInitUpdateRefs:
+      SVMGlobalData::_init_update_refs_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahFinalUpdateRefs:
+      SVMGlobalData::_final_update_refs_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_ShenandoahFinalRoots:
+      SVMGlobalData::_final_roots_op(heap_base, isolate_thread, op_data, &wrapper_data);
+      break;
+    case VM_Operation::VMOp_HandshakeFallback:
+      SVMGlobalData::_handshake_fallback_op(heap_base, isolate_thread, op_data, &wrapper_data);
       break;
     default:
       ShouldNotReachHere();

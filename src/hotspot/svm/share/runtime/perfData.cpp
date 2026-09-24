@@ -62,6 +62,7 @@ void PerfStringVariable::set_value(const char* s2) {
 // SVM-specific wrapper classes
 //
 
+#if INCLUDE_G1GC
 // G1TLABPerfData
 PerfLongVariable* G1TLABPerfData::alloc_threads() {
   return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._tlab_perf_data._alloc_threads);
@@ -238,6 +239,7 @@ G1AgeTablePerfData* G1PerfData::age_table() {
 G1CpuTimePerfData* G1PerfData::cpu_time() {
   return (G1CpuTimePerfData*) load_oop(this, SVMGlobalData::_offsets._perf_data._cpu_time);
 }
+#endif // INCLUDE_G1GC
 
 } // namespace svm_gc
 

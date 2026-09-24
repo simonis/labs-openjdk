@@ -79,7 +79,7 @@ GCS = (
         lib_name='g1gc',
         gc_defines=['-DINCLUDE_G1GC=1', '-DINCLUDE_SHENANDOAHGC=0'],
         exclusive_dirs=['share/gc/g1', 'svm/share/gc/g1'],
-        exclusive_files=[],
+        exclusive_files=['svm/svmToG1GC.cpp'],
     ),
     _GC(
         name='genshen',
@@ -95,6 +95,7 @@ GCS = (
             'share/utilities/events.cpp',
             'share/utilities/formatBuffer.cpp',
             'svm/share/oops/objArrayOop.cpp',
+            'svm/svmToShenandoahGC.cpp',
         ],
     ),
 )
@@ -166,7 +167,7 @@ def _svm_gc_component():
                 installable_id='native-image',
                 license_files=[],
                 third_party_license_files=[],
-                support_distributions=['substratevm-gcs:SVM_G1GC_GRAALVM_SUPPORT'],
+                support_distributions=['substratevm-gcs:SVM_G1GC_GRAALVM_SUPPORT', 'substratevm-gcs:SVM_SHENANDOAHGC_GRAALVM_SUPPORT'],
                 installable=True,
             )
         else:

@@ -813,6 +813,7 @@ void  os::free(void *memblock) {
 void os::init_random(unsigned int initval) {
   _rand_seed = initval;
 }
+#endif // !SVM
 
 
 int os::next_random(unsigned int rand_seed) {
@@ -859,7 +860,6 @@ int os::random() {
     }
   }
 }
-#endif // !SVM
 
 // The INITIALIZED state is distinguished from the SUSPENDED state because the
 // conditions in which a thread is first started are different from those in which

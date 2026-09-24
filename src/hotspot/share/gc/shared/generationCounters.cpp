@@ -36,7 +36,9 @@ GenerationCounters::GenerationCounters(const char* name,
                                        size_t min_capacity, size_t max_capacity,
                                        size_t curr_capacity) {
   if (UsePerfData) {
-#ifdef SVM
+#if defined(SVM) && INCLUDE_SHENANDOAHGC
+    Unimplemented();
+#elif defined(SVM)
     G1GenerationPerfData *data = G1PerfData::get()->generation(ordinal);
     data->min_capacity()->set_value(min_capacity);
     data->max_capacity()->set_value(max_capacity);

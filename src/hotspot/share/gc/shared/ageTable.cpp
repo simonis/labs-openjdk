@@ -46,7 +46,9 @@ AgeTable::AgeTable(bool global) : _use_perf_data(UsePerfData && global) {
 
   if (_use_perf_data) {
 
-#ifdef SVM
+#if defined(SVM) && INCLUDE_SHENANDOAHGC
+    Unimplemented();
+#elif defined(SVM)
     G1AgeTablePerfData *data = G1PerfData::get()->age_table();
     for(int age = 0; age < table_size; age++) {
       _perf_sizes[age] = data->entry(age);
@@ -81,14 +83,12 @@ void AgeTable::clear() {
 }
 
 #ifndef PRODUCT
-#ifndef SVM
 bool AgeTable::is_clear() const {
   for (const size_t* p = sizes; p < sizes + table_size; ++p) {
     if (*p != 0) return false;
   }
   return true;
 }
-#endif // !SVM
 #endif // !PRODUCT
 
 void AgeTable::merge(const AgeTable* subTable) {

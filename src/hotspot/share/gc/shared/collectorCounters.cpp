@@ -33,7 +33,9 @@ namespace svm_gc {
 CollectorCounters::CollectorCounters(const char* name, int ordinal) {
 
   if (UsePerfData) {
-#ifdef SVM
+#if defined(SVM) && INCLUDE_SHENANDOAHGC
+    Unimplemented();
+#elif defined(SVM)
     G1CollectorPerfData *data = G1PerfData::get()->collector(ordinal);
     _invocations = data->invocations();
     _time = data->time();

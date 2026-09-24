@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2026, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,28 +23,20 @@
  * questions.
  */
 
-#include "svmToGC.hpp"
+#include "svmToShenandoahGC.hpp"
 #include "svmOopMap.hpp"
-#include "svmOptionPrinter.hpp"
 #include "ci/ciUtilities.hpp"
 #include "code/nmethod.hpp"
 #include "exports/sharedGCStructs.h"
-#if INCLUDE_G1GC
-#include "exports/g1GCStructs.h"
-#include "gc/g1/g1BarrierSet.inline.hpp"
-#include "gc/g1/g1CardTable.hpp"
-#include "gc/g1/g1CollectedHeap.hpp"
-#include "gc/g1/g1CollectedHeap.inline.hpp"
-#include "gc/g1/g1ThreadLocalData.hpp"
-#include "gc/g1/g1VMOperations.hpp"
-#include "gc/g1/g1HeapRegion.hpp"
-#endif // INCLUDE_G1GC
+#include "exports/shenandoahGCStructs.h"
 #include "gc/shared/cardTable.hpp"
 #include "gc/shared/collectedHeap.inline.hpp"
 #include "gc/shared/gcArguments.hpp"
 #include "gc/shared/gcCause.hpp"
+#include "gc/shenandoah/shenandoahBarrierSet.inline.hpp"
 #include "logging/logConfiguration.hpp"
 #include "oops/arrayKlass.inline.hpp"
+#include "oops/compressedOops.inline.hpp"
 #include "oops/instanceKlass.hpp"
 #include "oops/instanceStackChunkKlass.hpp"
 #include "oops/instancePodKlass.hpp"
@@ -93,8 +85,6 @@
 
 namespace svm_gc {
 
-#if INCLUDE_G1GC
-
 static inline jlong convert_size_t_to_jlong(size_t val) {
   // In the 64-bit vm, a size_t can overflow a jlong (which is signed).
   NOT_LP64 (return (jlong)val;)
@@ -103,11 +93,11 @@ static inline jlong convert_size_t_to_jlong(size_t val) {
 
 extern "C" {
 // NO_TRANSITION - This method is called during startup, before anything else is initialized.
-EXPORT_FOR_SVM void svm_g1gc_parse_options(int actual_native_image_version, int argc, char *argv[], char *image_build_hosted_args, char *image_build_runtime_args,
+EXPORT_FOR_SVM void svm_gc_parse_options(int actual_native_image_version, int argc, char *argv[], char *image_build_hosted_args, char *image_build_runtime_args,
     size_t max_heap_address_space_size, size_t heap_base_alignment, size_t null_regions_size, size_t image_heap_size,
-    int compressed_reference_shift, bool is_containerized, jlong container_memory_limit_in_bytes, int container_active_processor_count, G1HeapOptions *result) {
+    int compressed_reference_shift, bool is_containerized, jlong container_memory_limit_in_bytes, int container_active_processor_count, ShenandoahHeapOptions *result) {
   // verify invariants
-  int expected_native_image_version = 250302;
+  int expected_native_image_version = 250101;
   guarantee(actual_native_image_version >= expected_native_image_version, "incompatible GC version: the native-image tries to use a GC that is too new");
   guarantee(actual_native_image_version <= expected_native_image_version, "incompatible GC version: the native-image tries to use a GC that is too old");
 #ifdef SVM_COMPRESSED_REFERENCES
@@ -136,7 +126,7 @@ EXPORT_FOR_SVM void svm_g1gc_parse_options(int actual_native_image_version, int 
   SVMGlobalData::_image_build_hosted_args = image_build_hosted_args;
   SVMGlobalData::_image_build_runtime_args = image_build_runtime_args;
 
-  // Container information needs to be set before argument parsing
+  // Container information needs to be set before the argument parsing
   SVMGlobalData::_is_containerized = is_containerized;
   SVMGlobalData::_container_memory_limit_in_bytes = container_memory_limit_in_bytes;
   SVMGlobalData::_container_active_processor_count = container_active_processor_count;
@@ -148,34 +138,33 @@ EXPORT_FOR_SVM void svm_g1gc_parse_options(int actual_native_image_version, int 
   result->heap_address_space_size = MaxHeapSize + null_regions_size;
   result->physical_memory_size = FLAG_IS_DEFAULT(MaxRAM) ? os::physical_memory() : MaxRAM;
 
+  // Note: `MaxHeapSize` already accounts for `image_heap_size` (see `Arguments::increase_by_image_heap_size()`)
   guarantee(MaxHeapSize <= max_heap_address_space_size, "Java heap must fit into its address space");
   guarantee(ReservedAddressSpaceSize == 0 || MaxHeapSize <= ReservedAddressSpaceSize, "heap address space size is invalid");
 }
 
 // NO_TRANSITION - Only called during startup by uninterruptible code before a safepoint can be triggered.
-EXPORT_FOR_SVM G1InitState* svm_g1gc_create(IsolateThread *isolate_thread, char *heap_base,
-    int closed_image_heap_regions, int open_image_heap_regions, typeArrayOop image_heap_region_types, typeArrayOop image_heap_region_free_spaces,
-    const uint8_t *image_heap_block_offset_table, size_t image_heap_block_offset_table_size,
+EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread, char *heap_base,
+    int closed_image_heap_regions, int open_image_heap_regions, typeArrayOop image_heap_region_types /* a Java byte[] */,
+    typeArrayOop image_heap_region_free_spaces /* a Java int[] */,
     Klass *dynamic_hub_klass, InstanceKlass *filler_object_klass, TypeArrayKlass *filler_array_klass, Klass *string_klass, Klass *system_klass,
     objArrayOop static_object_fields, typeArrayOop static_primitive_fields, oop vm_operation_thread, oop safepoint, oop runtime_code_info_memory,
     int reference_map_compressed_offset_shift, SVMOopMap *thread_locals_reference_map,
-    objArrayOop klasses_assumed_reachable_for_code_unloading, oop performance_data, bool closed_type_world,
+    objArrayOop klasses_assumed_reachable_for_code_unloading, bool perf_data_support, bool closed_type_world,
     bool use_interface_hashing, int interface_hashing_max_id, int dynamic_hub_hashing_interface_mask, int dynamic_hub_hashing_shift_offset,
     char *offsets, int offsets_length,
-    queueVmOperationFunc collect_for_allocation_op, queueVmOperationFunc execute_pause_remark_op, queueVmOperationFunc execute_pause_cleanup_op,
-    queueVmOperationFunc collect_full_op, queueVmOperationFunc verify_heap_op, queueVmOperationFunc try_initiate_conc_mark_op,
+    queueVmOperationFunc collect_for_allocation_op, queueVmOperationFunc collect_full_op, queueVmOperationFunc collect_degenerated_op, queueVmOperationFunc init_mark_op, queueVmOperationFunc final_mark_op, queueVmOperationFunc init_update_refs_op, queueVmOperationFunc final_update_refs_op, queueVmOperationFunc final_roots_op, queueVmOperationFunc handshake_fallback_op,
     vmOperationStatusFunc wait_for_vm_operation_execution_status, vmOperationStatusFunc update_vm_operation_execution_status,
-    vmOperationDataFunc is_vm_operation_finished, fetchThreadStackFramesFunc fetch_thread_stack_frames, freeThreadStackFramesFunc free_thread_stack_frames,
+    vmOperationDataFunc is_vm_operation_finished, yieldToQueuedVmOperationsFunc yield_to_queued_vm_operations,
+    fetchThreadStackFramesFunc fetch_thread_stack_frames, freeThreadStackFramesFunc free_thread_stack_frames,
     fetchContinuationStackFramesFunc fetch_continuation_stack_frames, freeContinuationStackFramesFunc free_continuation_stack_frames,
     fetchCodeInfosFunc fetch_code_infos, freeCodeInfosFunc free_code_infos, cleanRuntimeCodeCacheFunc clean_runtime_code_cache,
-    threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm) {
+    threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm,
+    threadsLockFunc lock_threads_read, threadsLockFunc unlock_threads_read) {
   assert(isolate_thread->has_status_created(), "unexpected thread state");
   guarantee(SVMIsolateData::_heap_base == nullptr, "GC doesn't support multiple isolates at the moment.");
 
   // verify that gc_parse_options was executed properly
-  guarantee(G1HeapRegionSize > 0, "must be");
-  guarantee(MaxHeapSize > (closed_image_heap_regions + open_image_heap_regions) * G1HeapRegionSize, "must be");
-  guarantee(MinHeapSize >= (closed_image_heap_regions + open_image_heap_regions) * G1HeapRegionSize, "must be");
   guarantee(MaxNewSize >= 0, "must be");
   guarantee(TLABSize >= 0, "must be");
 
@@ -187,7 +176,6 @@ EXPORT_FOR_SVM G1InitState* svm_g1gc_create(IsolateThread *isolate_thread, char 
   guarantee(closed_image_heap_regions > 0 || open_image_heap_regions > 0, "must be");
   guarantee(image_heap_region_types != nullptr, "must be");
   guarantee(image_heap_region_free_spaces != nullptr, "must be");
-  guarantee(image_heap_block_offset_table != nullptr || image_heap_block_offset_table_size == 0, "must be");
   guarantee(dynamic_hub_klass != nullptr, "must be");
   guarantee(filler_object_klass != nullptr, "must be");
   guarantee(filler_array_klass != nullptr, "must be");
@@ -203,43 +191,39 @@ EXPORT_FOR_SVM G1InitState* svm_g1gc_create(IsolateThread *isolate_thread, char 
   guarantee(offsets != nullptr, "must be");
   guarantee(offsets_length > 0, "must be");
   guarantee(collect_for_allocation_op != nullptr, "must be");
-  guarantee(execute_pause_remark_op != nullptr, "must be");
-  guarantee(execute_pause_cleanup_op != nullptr, "must be");
   guarantee(collect_full_op != nullptr, "must be");
-  guarantee(verify_heap_op != nullptr, "must be");
-  guarantee(try_initiate_conc_mark_op != nullptr, "must be");
+  guarantee(collect_degenerated_op != nullptr, "must be");
+  guarantee(init_mark_op != nullptr, "must be");
+  guarantee(final_mark_op != nullptr, "must be");
+  guarantee(init_update_refs_op != nullptr, "must be");
+  guarantee(final_update_refs_op != nullptr, "must be");
+  guarantee(final_roots_op != nullptr, "must be");
+  guarantee(handshake_fallback_op != nullptr, "must be");
   guarantee(wait_for_vm_operation_execution_status != nullptr, "must be");
   guarantee(update_vm_operation_execution_status != nullptr, "must be");
   guarantee(is_vm_operation_finished != nullptr, "must be");
+  guarantee(yield_to_queued_vm_operations != nullptr, "must be");
   guarantee(fetch_thread_stack_frames != nullptr, "must be");
   guarantee(free_thread_stack_frames != nullptr, "must be");
   guarantee(transition_vm_to_native != nullptr, "must be");
   guarantee(fast_transition_native_to_vm != nullptr, "must be");
   guarantee(slow_transition_native_to_vm != nullptr, "must be");
+  guarantee(lock_threads_read != nullptr, "must be");
+  guarantee(unlock_threads_read != nullptr, "must be");
   guarantee(dynamic_hub_hashing_interface_mask == DynamicHubHashingInterfaceMask, "must be");
   guarantee(dynamic_hub_hashing_shift_offset == DynamicHubHashingShiftOffset, "must be");
-
-  // validate invariants
-  guarantee(sizeof(GCThreadLocalData) == sizeof(G1ThreadLocalData), "must be");
 
   // apply arguments
   SVMIsolateData::_heap_base = heap_base;
   SVMIsolateData::_image_heap_region_types = image_heap_region_types;
   SVMIsolateData::_image_heap_region_free_spaces = image_heap_region_free_spaces;
-  SVMIsolateData::_closed_image_heap_start_addr = heap_base + SVMGlobalData::_null_regions_size;
-  SVMIsolateData::_closed_image_heap_end_addr = SVMIsolateData::_closed_image_heap_start_addr + closed_image_heap_regions * G1HeapRegionSize;
-  SVMIsolateData::_open_image_heap_start_addr = SVMIsolateData::_closed_image_heap_end_addr;
-  SVMIsolateData::_open_image_heap_end_addr = SVMIsolateData::_open_image_heap_start_addr + open_image_heap_regions * G1HeapRegionSize;
   SVMIsolateData::_static_object_fields = static_object_fields;
   SVMIsolateData::_static_primitive_fields = static_primitive_fields;
   SVMIsolateData::_vm_operation_thread = vm_operation_thread;
   SVMIsolateData::_safepoint = safepoint;
   SVMIsolateData::_runtime_code_info_memory = runtime_code_info_memory;
   SVMIsolateData::_klasses_assumed_reachable_for_code_unloading = klasses_assumed_reachable_for_code_unloading;
-  SVMIsolateData::_performance_data = performance_data;
 
-  SVMGlobalData::_image_heap_block_offset_table = image_heap_block_offset_table;
-  SVMGlobalData::_image_heap_block_offset_table_size = image_heap_block_offset_table_size;
   SVMGlobalData::_closed_image_heap_regions = closed_image_heap_regions;
   SVMGlobalData::_open_image_heap_regions = open_image_heap_regions;
   SVMGlobalData::_thread_locals_reference_map = thread_locals_reference_map;
@@ -247,14 +231,18 @@ EXPORT_FOR_SVM G1InitState* svm_g1gc_create(IsolateThread *isolate_thread, char 
   SVMGlobalData::_use_interface_hashing = use_interface_hashing;
   SVMGlobalData::_interface_hashing_max_id = interface_hashing_max_id;
   SVMGlobalData::_collect_for_allocation_op = collect_for_allocation_op;
-  SVMGlobalData::_execute_pause_remark_op = execute_pause_remark_op;
-  SVMGlobalData::_execute_pause_cleanup_op = execute_pause_cleanup_op;
   SVMGlobalData::_collect_full_op = collect_full_op;
-  SVMGlobalData::_verify_heap_op = verify_heap_op;
-  SVMGlobalData::_try_initiate_conc_mark_op = try_initiate_conc_mark_op;
+  SVMGlobalData::_collect_degenerated_op = collect_degenerated_op;
+  SVMGlobalData::_init_mark_op = init_mark_op;
+  SVMGlobalData::_final_mark_op = final_mark_op;
+  SVMGlobalData::_init_update_refs_op = init_update_refs_op;
+  SVMGlobalData::_final_update_refs_op = final_update_refs_op;
+  SVMGlobalData::_final_roots_op = final_roots_op;
+  SVMGlobalData::_handshake_fallback_op = handshake_fallback_op;
   SVMGlobalData::_wait_for_vm_operation_execution_status = wait_for_vm_operation_execution_status;
   SVMGlobalData::_update_vm_operation_execution_status = update_vm_operation_execution_status;
   SVMGlobalData::_is_vm_operation_finished = is_vm_operation_finished;
+  SVMGlobalData::_yield_to_queued_vm_operations = yield_to_queued_vm_operations;
   SVMGlobalData::_fetch_thread_stack_frames = fetch_thread_stack_frames;
   SVMGlobalData::_free_thread_stack_frames = free_thread_stack_frames;
   SVMGlobalData::_fetch_continuation_stack_frames = fetch_continuation_stack_frames;
@@ -264,9 +252,11 @@ EXPORT_FOR_SVM G1InitState* svm_g1gc_create(IsolateThread *isolate_thread, char 
   SVMGlobalData::_transition_vm_to_native = transition_vm_to_native;
   SVMGlobalData::_try_fast_transition_native_to_vm = fast_transition_native_to_vm;
   SVMGlobalData::_slow_transition_native_to_vm = slow_transition_native_to_vm;
+  SVMGlobalData::_lock_threads_read = lock_threads_read;
+  SVMGlobalData::_unlock_threads_read = unlock_threads_read;
   SVMGlobalData::_clean_runtime_code_cache = clean_runtime_code_cache;
   SVMGlobalData::initialize_offsets(offsets, offsets_length);
-  SVMGlobalData::verify_offsets(performance_data != nullptr);
+  SVMGlobalData::verify_offsets(perf_data_support);
 
   Universe::_dynamic_hub_klass = dynamic_hub_klass;
   Universe::_fillerArrayKlass = filler_array_klass;
@@ -277,7 +267,7 @@ EXPORT_FOR_SVM G1InitState* svm_g1gc_create(IsolateThread *isolate_thread, char 
   guarantee(filler_object_klass->size_helper() == oopDesc::header_size(), "must be");
 
   // The option UsePerfData is a bit special as it depends on a hosted flag.
-  if (performance_data == nullptr) {
+  if (!perf_data_support) {
     // AllowVMInspection was disabled when building the native-image. So, no matter which value is passed for UsePerfData
     // (at image build time or at runtime), we always need to disable UsePerfData.
     if (FLAG_SET_CMDLINE(UsePerfData, false) != JVMFlag::SUCCESS) {
@@ -300,29 +290,43 @@ EXPORT_FOR_SVM G1InitState* svm_g1gc_create(IsolateThread *isolate_thread, char 
     guarantee(SafepointSynchronize::get_safepoint_state() == SafepointSynchronize::not_at_safepoint, "must not be at a safepoint");
 
     // return a data structure with relevant offsets and constants (some of the values depend on the VM arguments)
-    g1_init_state.card_table_address = (address)ci_card_table_address();
-    g1_init_state.gc_total_collections_address = (address)Universe::heap()->total_collections_address();
-    g1_init_state.tlab_top_offset = in_bytes(Thread::tlab_top_offset());
-    g1_init_state.tlab_end_offset = in_bytes(Thread::tlab_end_offset());
-    g1_init_state.satb_queue_marking_offset = in_bytes(G1ThreadLocalData::satb_mark_queue_active_offset());
-    g1_init_state.satb_queue_buffer_offset = in_bytes(G1ThreadLocalData::satb_mark_queue_buffer_offset());
-    g1_init_state.satb_queue_index_offset = in_bytes(G1ThreadLocalData::satb_mark_queue_index_offset());
-    g1_init_state.card_queue_buffer_offset = in_bytes(G1ThreadLocalData::dirty_card_queue_buffer_offset());
-    g1_init_state.card_queue_index_offset = in_bytes(G1ThreadLocalData::dirty_card_queue_index_offset());
-    g1_init_state.card_table_shift = CardTable::card_shift();
-    g1_init_state.log_of_heap_region_grain_bytes = G1HeapRegion::LogOfHRGrainBytes;
-    g1_init_state.java_thread_size = sizeof(JavaThread);
-    g1_init_state.vm_operation_data_size = sizeof(VM_OperationData);
-    g1_init_state.vm_operation_wrapper_data_size = sizeof(VM_OperationWrapperData);
-    g1_init_state.dirty_card_value = CardTable::dirty_card_val();
-    g1_init_state.young_card_value = G1CardTable::g1_young_card_val();
-    return &g1_init_state;
+    // TODO: 'card_table_offset' is not constant in Shenandoah (see JDK-8343468)
+    shenandoah_init_state.card_table_address = nullptr; //(address)ci_card_table_address();
+    // Base of the Shenandoah collection-set fast-test map (biased by heap_base >> region_shift, so it
+    // is indexed directly by object_address >> region_shift). Allocated once with the heap, so the
+    // base is stable for the isolate's lifetime; the compiled CAS heal barrier uses it to skip the
+    // heal stub for references that are not in the collection set. See svm_gc_load_reference_barrier_heal.
+    shenandoah_init_state.cset_fast_test_address = (void*) ShenandoahHeap::in_cset_fast_test_addr();
+    shenandoah_init_state.tlab_top_offset = in_bytes(Thread::tlab_top_offset());
+    shenandoah_init_state.tlab_end_offset = in_bytes(Thread::tlab_end_offset());
+    shenandoah_init_state.card_table_shift = CardTable::card_shift();
+    shenandoah_init_state.log_of_heap_region_grain_bytes = 20;
+    shenandoah_init_state.java_thread_size = sizeof(JavaThread);
+    shenandoah_init_state.vm_operation_data_size = sizeof(VM_OperationData);
+    shenandoah_init_state.vm_operation_wrapper_data_size = sizeof(VM_OperationWrapperData);
+    // Offsets of the SATB mark queue's index and buffer fields, relative to the per-thread gc_state
+    // byte (which the generated barrier addresses via ShenandoahHeap.javaThreadTL). Used by the
+    // inlined SATB pre-write barrier's buffer write; validated against ShenandoahConstants at startup.
+    shenandoah_init_state.satb_index_offset =
+        in_bytes(ShenandoahThreadLocalData::satb_mark_queue_index_offset()) - in_bytes(ShenandoahThreadLocalData::gc_state_offset());
+    shenandoah_init_state.satb_buffer_offset =
+        in_bytes(ShenandoahThreadLocalData::satb_mark_queue_buffer_offset()) - in_bytes(ShenandoahThreadLocalData::gc_state_offset());
+    // Offset of the per-thread card-table base pointer, also relative to gc_state. The C++ side
+    // maintains it (ShenandoahBarrierSet::on_thread_attach and on card-table swaps), and it is null
+    // unless the current mode keeps a remembered set, which lets the inlined card-marking barrier of
+    // generational mode skip itself in the other modes.
+    shenandoah_init_state.card_table_offset =
+        in_bytes(ShenandoahThreadLocalData::card_table_offset()) - in_bytes(ShenandoahThreadLocalData::gc_state_offset());
+    shenandoah_init_state.mark_offset = oopDesc::mark_offset_in_bytes();
+    shenandoah_init_state.gc_state_offset = in_bytes(ShenandoahThreadLocalData::gc_state_offset());
+    shenandoah_init_state.dirty_card_value = CardTable::dirty_card_val();
+    return &shenandoah_init_state;
   }
   return nullptr;
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_update_option_value(oop optionName, jlong value) {
+EXPORT_FOR_SVM void svm_gc_update_option_value(oop optionName, jlong value) {
   assert(IsolateThread::current()->has_status_created() || IsolateThread::current()->has_status_java(), "unexpected thread state");
 
   bool update_logging = false;
@@ -347,7 +351,7 @@ EXPORT_FOR_SVM void svm_g1gc_update_option_value(oop optionName, jlong value) {
 }
 
 // NO_TRANSITION - Only called during teardown after all other threads were already torn down.
-EXPORT_FOR_SVM bool svm_g1gc_teardown() {
+EXPORT_FOR_SVM bool svm_gc_teardown() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   SVMIsolateData::_during_teardown = true;
 #ifdef ASSERT
@@ -362,7 +366,7 @@ EXPORT_FOR_SVM bool svm_g1gc_teardown() {
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_attach_thread(IsolateThread *thread) {
+EXPORT_FOR_SVM void svm_gc_attach_thread(IsolateThread *thread) {
   assert(thread->has_status_created(), "unexpected thread state");
   JavaThread *java_thread = new (thread->java_thread()) JavaThread();
   assert(is_aligned(java_thread, wordSize), "must be");
@@ -373,17 +377,14 @@ EXPORT_FOR_SVM void svm_g1gc_attach_thread(IsolateThread *thread) {
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
 // When this method is called, the thread may already have the state "IGNORE_SAFEPOINT" but by holding the threads lock on the Native Image-side,
 // it is guaranteed that no other thread can trigger a safepoint.
-// This method is also used when detaching other threads at a safepoint. In that case, the given thread will have STATUS_IN_SAFEPOINT, while the
-// current thread has STATUS_IN_JAVA. We need to ensure that no code in this method (besides the assertion below) executes IsolateThread::current()
-// or JavaThread::current().
-EXPORT_FOR_SVM void svm_g1gc_detach_thread(IsolateThread *thread) {
-  assert(thread->has_status_java() || thread->has_status_safepoint() && IsolateThread::current()->has_status_java(), "unexpected thread state");
+EXPORT_FOR_SVM void svm_gc_detach_thread(IsolateThread *thread) {
+  assert(thread->has_status_java(), "unexpected thread state");
   JavaThread *java_thread = thread->java_thread();
   java_thread->~JavaThread();
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_retire_tlab() {
+EXPORT_FOR_SVM void svm_gc_retire_tlab() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   if (UseTLAB) {
     JavaThread::current()->tlab().retire(nullptr);
@@ -391,52 +392,70 @@ EXPORT_FOR_SVM void svm_g1gc_retire_tlab() {
 }
 
 // NO_TRANSITION - Uninterruptible code that is only called by the VM thread during the safepoint handling. So, no other thread can trigger a safepoint in the meanwhile.
-EXPORT_FOR_SVM void svm_g1gc_prepare_for_safepoint() {
+EXPORT_FOR_SVM void svm_gc_prepare_for_safepoint() {
   assert(Thread::current()->is_VM_thread(), "must be the VM thread");
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   Universe::heap()->safepoint_synchronize_begin();
 }
 
 // NO_TRANSITION - Uninterruptible code that is only called by the VM thread during the safepoint handling. So, no other thread can trigger a safepoint in the meanwhile.
-EXPORT_FOR_SVM void svm_g1gc_end_safepoint() {
+EXPORT_FOR_SVM void svm_gc_end_safepoint() {
   assert(Thread::current()->is_VM_thread(), "must be the VM thread");
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   Universe::heap()->safepoint_synchronize_end();
 }
 
 // TO_VM - Called by any Java thread. Uses oops. May block. May cause a safepoint.
-EXPORT_FOR_SVM void svm_g1gc_collect(int cause) {
-  assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
-  G1CollectedHeap::heap()->collect((GCCause::Cause)cause);
+EXPORT_FOR_SVM void svm_gc_collect(int cause) {
+  IsolateThread* thread = IsolateThread::current();
+  assert(thread->has_status_vm(), "unexpected thread state");
+  if (!DisableExplicitGC) {
+    SVMGlobalData::_transition_vm_to_native(thread);
+    Universe::heap()->collect(GCCause::_java_lang_system_gc);
+    assert(thread->has_status_native_or_safepoint(), "must be");
+    SVMGlobalData::_slow_transition_native_to_vm(thread);
+    assert(thread->has_status_vm(), "must be");
+   }
 }
 
 // TO_NATIVE - Only called from the VM thread.
-EXPORT_FOR_SVM bool svm_g1gc_execute_vm_operation_prologue(VM_OperationData *data) {
+EXPORT_FOR_SVM bool svm_gc_execute_vm_operation_prologue(VM_OperationData *data) {
   assert(Thread::current()->is_VM_thread(), "must be the VM thread");
   assert(IsolateThread::current()->has_status_native(), "unexpected thread state");
   return data->vm_operation()->doit_prologue();
 }
 
 // TO_NATIVE - Only called from the VM thread at a safepoint.
-EXPORT_FOR_SVM void svm_g1gc_execute_vm_operation_main(VM_OperationData *data) {
+EXPORT_FOR_SVM void svm_gc_execute_vm_operation_main(VM_OperationData *data) {
   assert(Thread::current()->is_VM_thread(), "must be the VM thread");
   assert(SafepointSynchronize::get_safepoint_state() == SafepointSynchronize::at_safepoint, "must be at a safepoint");
   assert(IsolateThread::current()->has_status_native(), "unexpected thread state");
+  // Record the operation that is currently executing on the VM operation thread.
+  // This is read e.g. by is_at_shenandoah_safepoint(). Save/restore here (rather
+  // than in VMThread::execute) so that it stays correct for nested VM operations
+  // (e.g. a GC the VM operation thread runs inline due to an allocation failure).
+  VM_Operation* const prev = VMThread::set_current_vm_operation(data->vm_operation());
   data->vm_operation()->evaluate();
+  VMThread::restore_current_vm_operation(prev);
 }
 
 // TO_NATIVE - Only called from the VM thread.
-EXPORT_FOR_SVM void svm_g1gc_execute_vm_operation_epilogue(VM_OperationData *data) {
+EXPORT_FOR_SVM void svm_gc_execute_vm_operation_epilogue(VM_OperationData *data) {
   assert(Thread::current()->is_VM_thread(), "must be the VM thread");
   assert(IsolateThread::current()->has_status_native(), "unexpected thread state");
   data->vm_operation()->doit_epilogue();
 }
 
 // TO_VM - May be called by any Java thread. Uses oops. May block. May cause a safepoint.
-EXPORT_FOR_SVM oop svm_g1gc_allocate_instance(InstanceKlass *k) {
-  assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
+EXPORT_FOR_SVM oop svm_gc_allocate_instance(InstanceKlass *k) {
+  IsolateThread* thread = IsolateThread::current();
+  assert(thread->has_status_vm(), "unexpected thread state");
   assert(k->is_instance_klass(), "must be");
+  // The following call is potentially prone to deadlocks if it blocks. We therefore
+  // have to ensure that we transition to native before we block, e.g. in Monitor::wait()
+  // or in ShenandoahLock::contended_lock_internal()
   oop result = Universe::heap()->obj_allocate(k, k->size_helper());
+  assert(thread->has_status_vm(), "must be");
   if (result != nullptr) {
     BarrierSet::barrier_set()->on_slowpath_allocation_exit(JavaThread::current(), result);
   }
@@ -444,15 +463,20 @@ EXPORT_FOR_SVM oop svm_g1gc_allocate_instance(InstanceKlass *k) {
 }
 
 // TO_VM - May be called by any Java thread. Uses oops. May block. May cause a safepoint.
-EXPORT_FOR_SVM oop svm_g1gc_allocate_array(ArrayKlass *k, int length) {
-  assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
+EXPORT_FOR_SVM oop svm_gc_allocate_array(ArrayKlass *k, int length) {
+  IsolateThread* thread = IsolateThread::current();
+  assert(thread->has_status_vm(), "unexpected thread state");
   assert(k->is_array_klass(), "must be");
   assert(length >= 0, "must be");
 
   oop result = nullptr;
   if (length >= 0 && length <= k->max_length()) {
     int size = k->object_size(length);
+    // The following call is potentially prone to deadlocks if it blocks. We therefore
+    // have to ensure that we transition to native before we block, e.g. in Monitor::wait()
+    // or in ShenandoahLock::contended_lock_internal()
     result = Universe::heap()->array_allocate(k, size, length, true);
+    assert(thread->has_status_vm(), "must be");
     if (result != nullptr) {
       BarrierSet::barrier_set()->on_slowpath_allocation_exit(JavaThread::current(), result);
     }
@@ -461,7 +485,7 @@ EXPORT_FOR_SVM oop svm_g1gc_allocate_array(ArrayKlass *k, int length) {
 }
 
 // TO_VM - May be called by any Java thread. Uses oops. May block. May cause a safepoint.
-EXPORT_FOR_SVM oop svm_g1gc_allocate_stack_chunk(InstanceStackChunkKlass *k, int length) {
+EXPORT_FOR_SVM oop svm_gc_allocate_stack_chunk(InstanceStackChunkKlass *k, int length) {
   assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
   assert(k->is_stack_chunk_instance_klass(), "must be");
   assert(length >= 0, "must be");
@@ -474,7 +498,7 @@ EXPORT_FOR_SVM oop svm_g1gc_allocate_stack_chunk(InstanceStackChunkKlass *k, int
 }
 
 // TO_VM - May be called by any Java thread. Uses oops. May block. May cause a safepoint.
-EXPORT_FOR_SVM oop svm_g1gc_allocate_pod(InstancePodKlass *k, int length) {
+EXPORT_FOR_SVM oop svm_gc_allocate_pod(InstancePodKlass *k, int length) {
   assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
   assert(k->is_pod_instance_klass(), "must be");
   assert(length >= 0, "must be");
@@ -487,102 +511,168 @@ EXPORT_FOR_SVM oop svm_g1gc_allocate_pod(InstancePodKlass *k, int length) {
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_pin_object(oop o) {
+EXPORT_FOR_SVM void svm_gc_pin_object(oop o) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  G1CollectedHeap::heap()->pin_object(JavaThread::current(), o);
+  Universe::heap()->pin_object(nullptr, o);
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_unpin_object(oop o) {
+EXPORT_FOR_SVM void svm_gc_unpin_object(oop o) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  G1CollectedHeap::heap()->unpin_object(JavaThread::current(), o);
+  Universe::heap()->unpin_object(nullptr, o);
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_pre_write_barrier(oop obj) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  assert(Universe::heap()->is_in(obj), "must be in the available part of the heap");
+EXPORT_FOR_SVM void svm_gc_pre_write_barrier(oop obj) {
+  // This may run very early during isolate creation, before the GC (and its barrier set) has
+  // been installed. No GC can be in progress at that point, so there is nothing to do.
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return;
+  }
+  // satb_enqueue() internally checks whether SATB marking is active and whether 'obj' is
+  // non-null. 'obj' is the previous (uncompressed) value of the reference field being overwritten.
+  ShenandoahBarrierSet::barrier_set()->satb_enqueue(obj);
+}
 
-  // see G1BarrierSetRuntime::write_ref_field_pre_entry
-  SATBMarkQueue& queue = G1ThreadLocalData::satb_mark_queue(JavaThread::current());
-  G1BarrierSet::satb_mark_queue_set().enqueue_known_active(queue, obj);
+// SATB pre-write barrier variant that receives the previous value as a compressed
+// (narrow) reference. Used by generated code so that it does not have to decode
+// compressed references inline. The argument is pointer-width so that it can carry a
+// full-width narrow reference: with isolates but without size-reducing compression
+// (Graal CE) narrowOop is 8 bytes (a heap-base-relative offset), while with size-reducing
+// compressed references (SVM_COMPRESSED_REFERENCES) narrowOop is 4 bytes and the value is
+// simply zero-extended into the pointer-width argument.
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM void svm_gc_pre_write_barrier_narrow(uintptr_t narrow_pre_val) {
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return;
+  }
+  // Only decode/enqueue the previous value while concurrent marking is actually in progress
+  // (this mirrors the guard inside satb_enqueue()). Outside of marking the enqueue would be a
+  // no-op anyway, and the narrow word may hold uninitialized/non-reference data that would trip
+  // the debug "object not in heap" assertion inside CompressedOops::decode().
+  if (!ShenandoahHeap::heap()->is_concurrent_mark_in_progress()) {
+    return;
+  }
+  oop pre_val = CompressedOops::decode((narrowOop) narrow_pre_val);
+  ShenandoahBarrierSet::barrier_set()->satb_enqueue(pre_val);
+}
+
+// Load-reference barrier. 'obj' is the (uncompressed) reference that was just loaded.
+// Returns the canonical (to-space) reference. load_reference_barrier() internally
+// checks whether a barrier is actually required and returns 'obj' unchanged otherwise.
+// It only touches the current thread when evacuation is in progress, so it is safe to
+// call before the calling thread has been attached to the GC (early isolate creation).
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM oop svm_gc_load_reference_barrier(oop obj, void* load_addr) {
+  // See svm_gc_pre_write_barrier: the barrier set may not be installed yet during early
+  // isolate creation, in which case no objects are forwarded and there is nothing to do.
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return obj;
+  }
+  // Canonicalize 'obj' to its to-space location AND self-heal the memory location it was loaded
+  // from (if known): the decorated barrier CAS-updates *load_addr from the stale from-space value
+  // to the to-space value, so subsequent loads of the same slot take the inline fast path instead
+  // of calling this stub again. This mirrors HotSpot's two-argument LRB runtime entries
+  // (ShenandoahRuntime::load_reference_barrier_strong(oop, oop*)). 'load_addr' may be null when
+  // the load location is unknown; the barrier then only canonicalizes the value.
+  ShenandoahBarrierSet* const bs = ShenandoahBarrierSet::barrier_set();
+  if (UseCompressedOops) {
+    return bs->load_reference_barrier(ON_STRONG_OOP_REF, obj, reinterpret_cast<narrowOop*>(load_addr));
+  } else {
+    return bs->load_reference_barrier(ON_STRONG_OOP_REF, obj, reinterpret_cast<oop*>(load_addr));
+  }
+}
+
+// Load-reference barrier for a referent loaded from a WEAK reference (java.lang.ref.Reference.get,
+// Reference.refersTo on WeakReference, etc.). In addition to canonicalizing a from-space pointer
+// (and self-healing the load location like the strong variant above), it must NOT resurrect an
+// unreachable referent: during the concurrent weak-roots phase (after marking decided liveness,
+// before the reference processor has cleared dead referents) a load of an unmarked referent returns
+// null, exactly like the decorated C++ barrier (ON_WEAK_OOP_REF). Without this, a mutator could
+// obtain a strong reference to an unmarked collection-set object, store it into a live object, and
+// leave a dangling reference once the collection set is recycled (the object was never evacuated
+// because it was never marked).
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM oop svm_gc_load_reference_barrier_weak(oop obj, void* load_addr) {
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return obj;
+  }
+  ShenandoahBarrierSet* const bs = ShenandoahBarrierSet::barrier_set();
+  if (UseCompressedOops) {
+    return bs->load_reference_barrier(ON_WEAK_OOP_REF, obj, reinterpret_cast<narrowOop*>(load_addr));
+  } else {
+    return bs->load_reference_barrier(ON_WEAK_OOP_REF, obj, reinterpret_cast<oop*>(load_addr));
+  }
+}
+
+// Same as svm_gc_load_reference_barrier_weak, but for PHANTOM strength (Reference.refersTo on
+// phantom references and weak-native accesses): dead referents are filtered with is_marked (any
+// strength) rather than is_marked_strong.
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM oop svm_gc_load_reference_barrier_phantom(oop obj, void* load_addr) {
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return obj;
+  }
+  ShenandoahBarrierSet* const bs = ShenandoahBarrierSet::barrier_set();
+  if (UseCompressedOops) {
+    return bs->load_reference_barrier(ON_PHANTOM_OOP_REF, obj, reinterpret_cast<narrowOop*>(load_addr));
+  } else {
+    return bs->load_reference_barrier(ON_PHANTOM_OOP_REF, obj, reinterpret_cast<oop*>(load_addr));
+  }
+}
+
+// Self-healing load-reference barrier for a reference field that is about to be atomically updated
+// (compare-and-swap / getAndSet). Reads the current field value at 'addr', resolves it to its
+// canonical (to-space) location and - if it was a from-space pointer - CAS-heals the field in place,
+// so that a subsequent PLAIN atomic sees the to-space value and cannot suffer a concurrent-evacuation
+// false negative (which would otherwise leave a stale from-space pointer in the field). This mirrors
+// HotSpot's "fix up early" atomic barrier model (JDK-8384080 / JDK-8383810). It is only invoked on the
+// slow path, i.e. when the heap has forwarded objects (evacuation / update-refs in progress).
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM void svm_gc_load_reference_barrier_heal(void* addr) {
+  // See svm_gc_load_reference_barrier: the barrier set may not be installed yet during early
+  // isolate creation, in which case no objects are forwarded and there is nothing to do.
+  if (BarrierSet::barrier_set() == nullptr || Thread::current_or_null() == nullptr) {
+    return;
+  }
+  ShenandoahBarrierSet* const bs = ShenandoahBarrierSet::barrier_set();
+  if (UseCompressedOops) {
+    narrowOop* const p = reinterpret_cast<narrowOop*>(addr);
+    narrowOop v = *p;
+    if (CompressedOops::is_null(v)) {
+      return;
+    }
+    // The field holds a live reference (from-space or to-space); decode and canonicalize+heal it.
+    oop obj = CompressedOops::decode_not_null(v);
+    bs->load_reference_barrier(ON_STRONG_OOP_REF, obj, p);
+  } else {
+    oop* const p = reinterpret_cast<oop*>(addr);
+    oop obj = *p;
+    if (obj == nullptr) {
+      return;
+    }
+    bs->load_reference_barrier(ON_STRONG_OOP_REF, obj, p);
+  }
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_post_write_barrier(void *card_addr) {
+EXPORT_FOR_SVM void svm_gc_post_write_barrier(void *card_addr) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  assert(G1CollectedHeap::heap()->is_in(G1CollectedHeap::heap()->card_table()->addr_for((CardTable::CardValue*)card_addr)), "card must be for the available part of the heap");
 
-  // see G1BarrierSetRuntime::write_ref_field_post_entry
-  volatile G1CardTable::CardValue* card_ptr = (volatile G1CardTable::CardValue*)card_addr;
-  G1DirtyCardQueue& queue = G1ThreadLocalData::dirty_card_queue(JavaThread::current());
-  G1BarrierSet::dirty_card_queue_set().enqueue(queue, card_ptr);
+  Unimplemented();
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_array_range_pre_write_barrier(void *start, size_t length) {
+EXPORT_FOR_SVM void svm_gc_dirty_all_references_of(stackChunkOop stackChunk) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  assert(G1CollectedHeap::heap()->is_in(start), "array range must be in the available part of the heap");
-  assert(is_aligned(start, heapOopSize), "array range must be aligned to object reference size");
 
-  G1BarrierSet* barrier_set = barrier_set_cast<G1BarrierSet>(BarrierSet::barrier_set());
-#ifdef SVM_COMPRESSED_REFERENCES
-  barrier_set->write_ref_array_pre((narrowOop*)start, length, false);
-#else
-  barrier_set->write_ref_array_pre((oop*)start, length, false);
-#endif
-}
-
-// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_array_range_post_write_barrier(void *start, size_t length) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  assert(G1CollectedHeap::heap()->is_in(start), "array range must be in the available part of the heap");
-  assert(is_aligned(start, heapOopSize), "array range must be aligned to object reference size");
-
-  G1BarrierSet* barrier_set = barrier_set_cast<G1BarrierSet>(BarrierSet::barrier_set());
-  barrier_set->write_ref_array((HeapWord*)start, length);
-}
-
-// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_dirty_all_references_of(stackChunkOop stackChunk) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   if (Universe::heap()->requires_barriers(stackChunk)) {
     stackChunk->do_barriers();
   }
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_verify_oop(oop obj) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  ShouldNotReachHere();
-}
-
-// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM bool svm_g1gc_validate_object(oop parent, oop child) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  bool ret = true;
-  if (!Universe::heap()->is_in(parent)) {
-    tty->print_cr("Parent Object " INTPTR_FORMAT " not in heap", p2i(parent));
-    parent->print();
-    ret = false;
-  }
-  if (!Universe::heap()->is_in(child)) {
-    tty->print_cr("Child Object " INTPTR_FORMAT " not in heap", p2i(child));
-    child->print();
-    ret = false;
-  }
-  return ret;
-}
-
-// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM void svm_g1gc_log_printf(char* format, jlong v1, jlong v2, jlong v3) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  ResourceMark rm;
-  tty->print(format, v1, v2, v3);
-}
-
-// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM jlong svm_g1gc_millis_since_last_whole_heap_examined() {
+EXPORT_FOR_SVM jlong svm_gc_millis_since_last_whole_heap_examined() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   size_t n = Universe::heap()->millis_since_last_whole_heap_examined();
   return convert_size_t_to_jlong(n);
@@ -590,7 +680,7 @@ EXPORT_FOR_SVM jlong svm_g1gc_millis_since_last_whole_heap_examined() {
 
 // TO_NATIVE - Only called by the reference handler thread. May block.
 // Checks if an oop reference is non-null but that is fine as we hold the Heap_lock.
-EXPORT_FOR_SVM bool svm_g1gc_has_reference_pending_list() {
+EXPORT_FOR_SVM bool svm_gc_has_reference_pending_list() {
   // see JVM_HasReferencePendingList
   assert(IsolateThread::current()->has_status_native_or_safepoint(), "unexpected thread state");
   MonitorLocker ml(Heap_lock);
@@ -598,7 +688,7 @@ EXPORT_FOR_SVM bool svm_g1gc_has_reference_pending_list() {
 }
 
 // TO_VM - Only called by the reference handler thread. Uses oops. May block.
-EXPORT_FOR_SVM oop svm_g1gc_get_and_clear_reference_pending_list() {
+EXPORT_FOR_SVM oop svm_gc_get_and_clear_reference_pending_list() {
   // see JVM_GetAndClearReferencePendingList
   assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
   MonitorLocker ml(Heap_lock);
@@ -610,14 +700,14 @@ EXPORT_FOR_SVM oop svm_g1gc_get_and_clear_reference_pending_list() {
 }
 
 // NO_TRANSITION - Uninterruptible code that is only called by the reference handler thread.
-EXPORT_FOR_SVM uint64_t svm_g1gc_get_reference_pending_list_wakeup_count() {
+EXPORT_FOR_SVM uint64_t svm_gc_get_reference_pending_list_wakeup_count() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   return Universe::reference_pending_list_wakeup_count();
 }
 
 // TO_NATIVE - Only called by the reference handler thread. May block.
 // Checks if an oop reference is non-null but that is fine as we hold the Heap_lock.
-EXPORT_FOR_SVM bool svm_g1gc_wait_for_reference_pending_list(uint64_t initial_wakeup_count) {
+EXPORT_FOR_SVM bool svm_gc_wait_for_reference_pending_list(uint64_t initial_wakeup_count) {
   // see JVM_WaitForReferencePendingList
   assert(IsolateThread::current()->has_status_native_or_safepoint(), "unexpected thread state");
   MonitorLocker ml(Heap_lock);
@@ -628,7 +718,7 @@ EXPORT_FOR_SVM bool svm_g1gc_wait_for_reference_pending_list(uint64_t initial_wa
 }
 
 // TO_NATIVE - May be called by any thread. May block.
-EXPORT_FOR_SVM void svm_g1gc_wake_up_reference_pending_list_waiters() {
+EXPORT_FOR_SVM void svm_gc_wake_up_reference_pending_list_waiters() {
   assert(IsolateThread::current()->has_status_native_or_safepoint(), "unexpected thread state");
   MonitorLocker ml(Heap_lock);
   Universe::request_reference_pending_list_waiters_wakeup();
@@ -636,83 +726,60 @@ EXPORT_FOR_SVM void svm_g1gc_wake_up_reference_pending_list_waiters() {
 }
 
 // TO_NATIVE - Only called from the VM thread at a safepoint.
-EXPORT_FOR_SVM void svm_g1gc_get_region_boundaries(G1RegionBoundaries *region_boundaries) {
+EXPORT_FOR_SVM void svm_gc_get_region_boundaries(ShenandoahRegionBoundaries *region_boundaries) {
   assert(Thread::current()->is_VM_thread(), "must be the VM thread");
   assert(IsolateThread::current()->has_status_native_or_safepoint(), "unexpected thread state");
 
-  G1CollectedHeap* g1h = G1CollectedHeap::heap();
-  g1h->ensure_parsability(false);
+  Unimplemented();
+}
 
-  int regions = g1h->max_num_regions();
-  for (int i = 0; i < regions; i++) {
-    G1HeapRegion *hr = g1h->region_at_or_null(i);
-    G1RegionBoundaries& boundaries = region_boundaries[i];
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread.
+EXPORT_FOR_SVM void svm_gc_register_object_fields(nmethod* nm) {
+  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
+  assert(nm->state() == nmethod::state_code_constants_live, "must be");
 
-    if (hr == nullptr || hr->is_continues_humongous()) {
-      // ContinuesHumongous regions can be skipped during heap traversal,
-      // as the object will be visited in the StartHumongous region anyways
-      boundaries.bottom = 0;
-      boundaries.top = 0;
-    } else {
-      boundaries.bottom = (u_char*)hr->bottom();
-      boundaries.top = (u_char*)hr->top();
-    }
+  Unimplemented();
+}
+
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread.
+EXPORT_FOR_SVM void svm_gc_register_code_constants(nmethod* nm) {
+  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
+  assert(nm->state() == nmethod::state_code_constants_live, "must be");
+
+  Unimplemented();
+}
+
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread.
+EXPORT_FOR_SVM void svm_gc_register_frame_metadata(nmethod* nm) {
+  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
+  assert(nm->state() == nmethod::state_code_constants_live, "must be");
+
+  Unimplemented();
+}
+
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread.
+EXPORT_FOR_SVM void svm_gc_register_deopt_metadata(nmethod* nm) {
+  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
+  assert(nm->state() == nmethod::state_code_constants_live, "must be");
+
+  Unimplemented();
+}
+
+// NO_TRANSITION - Only called when printing diagnostics.
+EXPORT_FOR_SVM void svm_gc_get_internal_state(ShenandoahInternalState *gc_internal_data) {
+  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
+
+  if (gc_internal_data != nullptr) {
+    CollectedHeap* ch = Universe::heap();
+    gc_internal_data->total_collections = ch->total_collections();
+    gc_internal_data->full_collections = ch->total_full_collections();
+    gc_internal_data->card_table_size = 0;         // TODO
+    gc_internal_data->card_table_start = nullptr;  // TODO
   }
 }
 
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the G1StrongCodeRoots_lock temporarily.
-EXPORT_FOR_SVM void svm_g1gc_register_object_fields(nmethod* nm) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  assert(nm->state() == nmethod::state_code_constants_live, "must be");
-
-  MutexLocker ml(G1StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
-  G1CollectedHeap::heap()->register_object_fields(nm);
-}
-
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the G1StrongCodeRoots_lock temporarily.
-EXPORT_FOR_SVM void svm_g1gc_register_code_constants(nmethod* nm) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  assert(nm->state() == nmethod::state_code_constants_live, "must be");
-
-  MutexLocker ml(G1StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
-  G1CollectedHeap::heap()->register_code_constants(nm);
-}
-
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the G1StrongCodeRoots_lock temporarily.
-EXPORT_FOR_SVM void svm_g1gc_register_frame_metadata(nmethod* nm) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  assert(nm->state() == nmethod::state_code_constants_live, "must be");
-
-  MutexLocker ml(G1StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
-  G1CollectedHeap::heap()->register_frame_metadata(nm);
-}
-
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the G1StrongCodeRoots_lock temporarily.
-EXPORT_FOR_SVM void svm_g1gc_register_deopt_metadata(nmethod* nm) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  assert(nm->state() == nmethod::state_code_constants_live, "must be");
-
-  MutexLocker ml(G1StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
-  G1CollectedHeap::heap()->register_deopt_metadata(nm);
-}
-
 // NO_TRANSITION - Only called when printing diagnostics.
-EXPORT_FOR_SVM void svm_g1gc_get_internal_state(G1InternalState *gc_internal_data) {
-  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-
-  G1CollectedHeap* heap = G1CollectedHeap::heap();
-  gc_internal_data->total_collections = heap->total_collections();
-  gc_internal_data->full_collections = heap->total_full_collections();
-
-  gc_internal_data->card_table_start = G1CollectedHeap::heap()->card_table()->byte_for_index(0);
-  gc_internal_data->card_table_size = G1CollectedHeap::heap()->card_table()->byte_map_size();
-
-  gc_internal_data->block_offset_table_start = G1CollectedHeap::heap()->bot()->reserved()->start();
-  gc_internal_data->block_offset_table_size = G1CollectedHeap::heap()->bot()->reserved()->byte_size();
-}
-
-// NO_TRANSITION - Only called when printing diagnostics.
-EXPORT_FOR_SVM const char* svm_g1gc_get_current_thread_name() {
+EXPORT_FOR_SVM const char* svm_gc_get_current_thread_name() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   Thread* cur = Thread::current_or_null();
   if (cur != nullptr) {
@@ -722,33 +789,28 @@ EXPORT_FOR_SVM const char* svm_g1gc_get_current_thread_name() {
 }
 
 // NO_TRANSITION - Only called when printing diagnostics. SVM threads may still be running concurrently, so this is racy by design.
-EXPORT_FOR_SVM bool svm_g1gc_get_region_info(int region_index, G1RegionInfo *region_info) {
+EXPORT_FOR_SVM bool svm_gc_get_region_info(int region_index, ShenandoahRegionInfo *region_info) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
-  G1HeapRegion *hr = G1CollectedHeap::heap()->region_at_or_null(region_index);
-  if (hr != nullptr) {
-    G1ConcurrentMark* cm = G1CollectedHeap::heap()->concurrent_mark();
-    region_info->bottom = (u_char*)hr->bottom();
-    region_info->top = (u_char*)hr->top();
-    region_info->end = (u_char*)hr->end();
-    region_info->top_at_mark_start = (u_char*)cm->top_at_mark_start(hr);
-    region_info->parsable_bottom = (u_char*)hr->parsable_bottom_acquire();
-    region_info->pinned_object_count = hr->pinned_count();
-    region_info->in_collection_set = hr->in_collection_set();
-    region_info->remembered_set_state = hr->rem_set()->state();
-    region_info->region_type = hr->type().get();
+
+  ShenandoahHeapRegion *region = ShenandoahHeap::heap()->get_region(region_index);
+  if (region_info != nullptr && region != nullptr) {
+    region_info->bottom = (u_char*)region->bottom();
+    region_info->end = (u_char*)region->end();
+    region_info->top = (u_char*)region->top();
+    region_info->region_type = region->state(); // TODO: region state is bigger than 'char' for image heap regions.
     return true;
   }
   return false;
 }
 
 // NO_TRANSITION - Can be called by any thread. This is racy by design.
-EXPORT_FOR_SVM jlong svm_g1gc_get_thread_allocated_memory(IsolateThread *thread) {
+EXPORT_FOR_SVM jlong svm_gc_get_thread_allocated_memory(IsolateThread *thread) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   return thread->java_thread()->cooked_allocated_bytes();
 }
 
 // TO_VM - May be called by any Java thread. May block.
-EXPORT_FOR_SVM jlong svm_g1gc_get_used_memory() {
+EXPORT_FOR_SVM jlong svm_gc_get_used_memory() {
   assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
   MutexLocker x(Heap_lock);
   size_t n = Universe::heap()->used();
@@ -757,7 +819,7 @@ EXPORT_FOR_SVM jlong svm_g1gc_get_used_memory() {
 }
 
 // TO_VM - May be called by any Java thread. May block.
-EXPORT_FOR_SVM jlong svm_g1gc_get_free_memory() {
+EXPORT_FOR_SVM jlong svm_gc_get_free_memory() {
   assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
   CollectedHeap* ch = Universe::heap();
   size_t n;
@@ -769,7 +831,7 @@ EXPORT_FOR_SVM jlong svm_g1gc_get_free_memory() {
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM jlong svm_g1gc_get_total_memory() {
+EXPORT_FOR_SVM jlong svm_gc_get_total_memory() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   size_t n = Universe::heap()->capacity();
   assert(n >= SVMGlobalData::_image_heap_size, "must be");
@@ -777,7 +839,7 @@ EXPORT_FOR_SVM jlong svm_g1gc_get_total_memory() {
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
-EXPORT_FOR_SVM jlong svm_g1gc_get_max_memory() {
+EXPORT_FOR_SVM jlong svm_gc_get_max_memory() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   size_t n = Universe::heap()->max_capacity();
   assert(n >= SVMGlobalData::_image_heap_size, "must be");
@@ -785,7 +847,7 @@ EXPORT_FOR_SVM jlong svm_g1gc_get_max_memory() {
 }
 
 // NO_TRANSITION - Can be called by any thread.
-EXPORT_FOR_SVM size_t svm_g1gc_get_used_memory_after_last_gc() {
+EXPORT_FOR_SVM size_t svm_gc_get_used_memory_after_last_gc() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   size_t n = Universe::heap()->used_at_last_gc();
   assert(n >= SVMGlobalData::_image_heap_used, "must be");
@@ -794,6 +856,5 @@ EXPORT_FOR_SVM size_t svm_g1gc_get_used_memory_after_last_gc() {
 
 } // extern C
 
-#endif // INCLUDE_G1GC
-
 } // namespace svm_gc
+

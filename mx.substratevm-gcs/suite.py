@@ -199,6 +199,79 @@ suite = {
             "maven": False
         },
 
+        "SVM_SHENANDOAHGC": {
+            "native": True,
+            "platformDependent": True,
+            "layout": {
+                "<os>-<arch>/include/": [
+                    "file:src/hotspot/svm/exports/shenandoahGCStructs.h",
+                ]
+            },
+            "os_arch": {
+                # Shenandoah currently only supports linux/amd64 and linux/aarch64.
+                "linux": {
+                    "amd64": {
+                        "layout": {
+                            "<os>-<arch>/<staticlib:shenandoahgc-cr>": {
+                                "source_type": "dependency",
+                                "dependency": "hotspot",
+                                "path": "<os>-<arch>/glibc/<staticlib:shenandoahgc-cr>",
+                                "optional": True,
+                            },
+                            "<os>-<arch>/<staticlib:shenandoahgc-ur>": {
+                                "source_type": "dependency",
+                                "dependency": "hotspot",
+                                "path": "<os>-<arch>/glibc/<staticlib:shenandoahgc-ur>",
+                                "optional": True,
+                            },
+                            "<os>-<arch>/<staticlib:shenandoahgc-musl-cr>": {
+                                "source_type": "dependency",
+                                "dependency": "hotspot",
+                                "path": "<os>-<arch>/musl/<staticlib:shenandoahgc-cr>",
+                                "optional": True,
+                            },
+                            "<os>-<arch>/<staticlib:shenandoahgc-musl-ur>": {
+                                "source_type": "dependency",
+                                "dependency": "hotspot",
+                                "path": "<os>-<arch>/musl/<staticlib:shenandoahgc-ur>",
+                                "optional": True,
+                            },
+                            "<os>-<arch>/<staticlib:shenandoahgc-musl-swcfi-cr>": {
+                                "source_type": "dependency",
+                                "dependency": "hotspot",
+                                "path": "<os>-<arch>/musl-swcfi/<staticlib:shenandoahgc-cr>",
+                                "optional": True,
+                            },
+                            "<os>-<arch>/<staticlib:shenandoahgc-musl-swcfi-ur>": {
+                                "source_type": "dependency",
+                                "dependency": "hotspot",
+                                "path": "<os>-<arch>/musl-swcfi/<staticlib:shenandoahgc-ur>",
+                                "optional": True,
+                            },
+                        },
+                    },
+                    "aarch64": {
+                        "layout": {
+                            "<os>-<arch>/<staticlib:shenandoahgc-cr>": {
+                                "source_type": "dependency",
+                                "dependency": "hotspot",
+                                "path": "<os>-<arch>/glibc/<staticlib:shenandoahgc-cr>",
+                                "optional": True,
+                            },
+                            "<os>-<arch>/<staticlib:shenandoahgc-ur>": {
+                                "source_type": "dependency",
+                                "dependency": "hotspot",
+                                "path": "<os>-<arch>/glibc/<staticlib:shenandoahgc-ur>",
+                                "optional": True,
+                            },
+                        },
+                    },
+                },
+            },
+            "description": "SubstrateVM Shenandoah GC components",
+            "maven": False
+        },
+
         "SVM_G1GC_GRAALVM_SUPPORT": {
             "native": True,
             "platformDependent": True,
@@ -206,6 +279,16 @@ suite = {
             "layout": {
                 "clibraries/": ["extracted-dependency:substratevm-gcs:SVM_G1GC"],
                 "builder/clibraries/": ["extracted-dependency:substratevm-gcs:SVM_G1GC"],
+            },
+        },
+
+        "SVM_SHENANDOAHGC_GRAALVM_SUPPORT": {
+            "native": True,
+            "platformDependent": True,
+            "description": "SubstrateVM Shenandoah GC libraries for inclusion in GraalVM distributions",
+            "layout": {
+                "clibraries/": ["extracted-dependency:substratevm-gcs:SVM_SHENANDOAHGC"],
+                "builder/clibraries/": ["extracted-dependency:substratevm-gcs:SVM_SHENANDOAHGC"],
             },
         },
     },

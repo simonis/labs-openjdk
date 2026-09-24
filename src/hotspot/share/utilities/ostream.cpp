@@ -218,13 +218,13 @@ void outputStream::move_to(int col, int slop, int min_space) {
     need_fill = min_space;
   sp(need_fill);
 }
+#endif // !SVM
 
 void outputStream::put(char ch) {
   assert(ch != 0, "please fix call site");
   char buf[] = { ch, '\0' };
   write(buf, 1);
 }
-#endif // !SVM
 
 void outputStream::sp(int count) {
   if (count < 0)  return;

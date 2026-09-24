@@ -231,6 +231,7 @@ struct SVMOffsets {
   struct SVMSoftReferenceOffsets _soft_reference;
   struct SVMStackChunkOffsets _stack_chunk;
   struct SVMRuntimeCodeInfoMemoryOffsets _runtime_code_info_memory;
+#if INCLUDE_G1GC
   struct SVMG1TLABPerfDataOffsets _tlab_perf_data;
   struct SVMG1GCPolicyPerfDataOffsets _gc_policy_perf_data;
   struct SVMG1GCCausesPerfDataOffsets _gc_causes_perf_data;
@@ -240,6 +241,7 @@ struct SVMOffsets {
   struct SVMG1AgeTablePerfDataOffsets _age_table_perf_data;
   struct SVMG1CpuTimePerfDataOffsets _cpu_time_perf_data;
   struct SVMG1PerfDataOffsets _perf_data;
+#endif // INCLUDE_G1GC
   struct SVMPerfLongOffsets _perf_long;
   struct SVMPerfStringVariableOffsets _perf_string_variable;
 };

@@ -921,11 +921,9 @@ void OopStorage::report_num_dead(size_t num_dead) const {
   }
 }
 
-#ifndef SVM
 bool OopStorage::should_report_num_dead() const {
   return _num_dead_callback != nullptr;
 }
-#endif // !SVM
 
 // Managing service thread notifications.
 

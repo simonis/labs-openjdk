@@ -164,12 +164,10 @@ bm_word_t* ArenaBitMap::reallocate(bm_word_t* old_map, size_t old_size_in_words,
   return pseudo_reallocate(*this, old_map, old_size_in_words, new_size_in_words);
 }
 
-#ifndef SVM
 ResourceBitMap::ResourceBitMap(idx_t size_in_bits, bool clear)
   : GrowableBitMap<ResourceBitMap>() {
   initialize(size_in_bits, clear);
 }
-#endif // !SVM
 
 bm_word_t* ResourceBitMap::allocate(idx_t size_in_words) const {
   return (bm_word_t*)NEW_RESOURCE_ARRAY(bm_word_t, size_in_words);
@@ -346,7 +344,6 @@ void BitMap::clear_large_range(idx_t beg, idx_t end) {
   clear_range_within_word(bit_index(end_full_word), end);
 }
 
-#ifndef SVM
 void BitMap::at_put(idx_t bit, bool value) {
   if (value) {
     set_bit(bit);
@@ -354,7 +351,6 @@ void BitMap::at_put(idx_t bit, bool value) {
     clear_bit(bit);
   }
 }
-#endif // !SVM
 
 // Return true to indicate that this thread changed
 // the bit, false to indicate that someone else did.

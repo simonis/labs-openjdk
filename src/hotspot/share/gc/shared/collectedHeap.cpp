@@ -326,7 +326,9 @@ CollectedHeap::CollectedHeap() :
   NOT_PRODUCT(_promotion_failure_alot_gc_number = 0;)
 
   if (UsePerfData) {
-#ifdef SVM
+#if defined(SVM) && INCLUDE_SHENANDOAHGC
+    Unimplemented();
+#elif defined(SVM)
     G1GCCausesPerfData *data = G1PerfData::get()->causes();
     _perf_gc_cause = data->cause();
     _perf_gc_cause->set_value(GCCause::to_string(_gc_cause));

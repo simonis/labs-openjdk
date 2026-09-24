@@ -356,7 +356,9 @@ void ThreadLocalAllocStats::initialize() {
   _allocating_threads_avg.sample(1); // One allocating thread at startup
 
   if (UsePerfData) {
-#ifdef SVM
+#if defined(SVM) && INCLUDE_SHENANDOAHGC
+    Unimplemented();
+#elif defined(SVM)
     G1TLABPerfData *data = G1PerfData::get()->tlab();
     _perf_allocating_threads      = data->alloc_threads();
     _perf_total_refills           = data->fills();

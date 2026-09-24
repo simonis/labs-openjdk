@@ -35,7 +35,6 @@ const char* LogLevel::_name[] = {
 #undef LOG_LEVEL
 };
 
-#ifndef SVM
 LogLevelType LogLevel::from_string(const char* str) {
   for (uint i = 0; i < Count; i++) {
     if (strcasecmp(str, _name[i]) == 0) {
@@ -45,6 +44,7 @@ LogLevelType LogLevel::from_string(const char* str) {
   return Invalid;
 }
 
+#ifndef SVM
 LogLevelType LogLevel::fuzzy_match(const char *level) {
   size_t len = strlen(level);
   LogLevelType match = LogLevel::Invalid;

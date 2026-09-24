@@ -173,6 +173,9 @@ void SVMGlobalData::verify_offsets(bool use_perf_data) {
   assert(SVMGlobalData::_offsets._runtime_code_info_memory._table > oopDesc::klass_offset_in_bytes(), "must be");
 
   if (use_perf_data) {
+#if INCLUDE_SHENANDOAHGC
+    Unimplemented();
+#else
     assert(SVMGlobalData::_offsets._tlab_perf_data._alloc_threads > oopDesc::klass_offset_in_bytes(), "must be");
     assert(SVMGlobalData::_offsets._tlab_perf_data._fills > oopDesc::klass_offset_in_bytes(), "must be");
     assert(SVMGlobalData::_offsets._tlab_perf_data._max_fills > oopDesc::klass_offset_in_bytes(), "must be");
@@ -222,6 +225,7 @@ void SVMGlobalData::verify_offsets(bool use_perf_data) {
     assert(SVMGlobalData::_offsets._perf_long._value > oopDesc::klass_offset_in_bytes(), "must be");
 
     assert(SVMGlobalData::_offsets._perf_string_variable._null_terminated_value > oopDesc::klass_offset_in_bytes(), "must be");
+#endif // INCLUDE_SHENANDOAHGC
   }
 }
 

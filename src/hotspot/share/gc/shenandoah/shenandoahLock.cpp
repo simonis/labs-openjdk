@@ -61,7 +61,7 @@ void ShenandoahLock::contended_lock_internal(JavaThread* java_thread) {
       // In SubstrateVM we have to transition to native such that we can potentially block
       // for a pending safepoint. If we don't do this, we can easily deadlock if another thread
       // holds the lock already and waits for a safepoint. For more information on the topic check
-      // the comments in svmToGC.cpp and vmThread.cpp.
+      // the comments in svmToShenandoahGC.cpp and vmThread.cpp.
       IsolateThread *thread = java_thread->isolate_thread();
       bool transition_back_to_vm = false;
       if (thread->has_status_vm()) {

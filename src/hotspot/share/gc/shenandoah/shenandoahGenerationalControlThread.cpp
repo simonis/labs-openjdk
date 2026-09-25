@@ -74,6 +74,12 @@ void ShenandoahGenerationalControlThread::run_service() {
     // This control loop iteration has seen this much allocation.
     const size_t allocs_seen = reset_allocs_seen();
 
+    // Snapshot before the decision below, so run_gc_cycle() can detect an inline GC that ran in
+    // between and invalidated it.
+#ifdef SVM
+    const size_t svm_inline_gc_count_at_decision = Atomic::load(&_svm_inline_gc_count);
+#endif // SVM
+
     // Figure out if we have pending requests.
     check_for_request(request);
 
@@ -82,7 +88,7 @@ void ShenandoahGenerationalControlThread::run_service() {
     }
 
     if (request.cause != GCCause::_no_gc) {
-      run_gc_cycle(request);
+      run_gc_cycle(request SVM_ONLY(COMMA svm_inline_gc_count_at_decision));
     } else {
       // Report to pacer that we have seen this many words allocated
 #ifndef SVM
@@ -244,7 +250,7 @@ void ShenandoahGenerationalControlThread::maybe_set_aging_cycle() {
   }
 }
 
-void ShenandoahGenerationalControlThread::run_gc_cycle(const ShenandoahGCRequest& request) {
+void ShenandoahGenerationalControlThread::run_gc_cycle(const ShenandoahGCRequest& request SVM_ONLY(COMMA size_t svm_inline_gc_count_at_decision)) {
 
   log_debug(gc, thread)("Starting GC (%s): %s, %s", gc_mode_name(gc_mode()), GCCause::to_string(request.cause), request.generation->name());
   assert(gc_mode() != none, "GC mode cannot be none here");
@@ -279,6 +285,18 @@ void ShenandoahGenerationalControlThread::run_gc_cycle(const ShenandoahGCRequest
     // token before running a GC inline for itself (see run_gc_on_vm_thread()), which would
     // otherwise overlap this cycle's GC state and phase tracking.
     ShenandoahSVMCycleOwnershipMark svm_cycle_ownership(this);
+    if (Atomic::load(&_svm_inline_gc_count) != svm_inline_gc_count_at_decision) {
+      // An inline GC ran on the VM operation thread between the decision in check_for_request()
+      // and the ownership acquisition above. The decision inputs are stale: the inline GC cleared
+      // the cancellation and reset the marking state. Abandon this cycle, the control loop re-evaluates
+      // from scratch, and the inline GC has already collected.
+      log_info(gc)("Cycle decision invalidated by an inline GC on the VM operation thread, re-evaluating");
+      // Restore the decision state like a completed cycle does (see service_stw_full_cycle() and
+      // service_stw_degenerated_cycle()) because the degeneration point recorded for the abandoned
+      // decision must not leak into the next one, which asserts that it starts out unset.
+      _degen_point = ShenandoahGC::_degenerated_unset;
+      return;
+    }
 #endif // SVM
 
     // Cannot uncommit bitmap slices during concurrent reset

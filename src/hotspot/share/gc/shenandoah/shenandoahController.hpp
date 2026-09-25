@@ -118,25 +118,21 @@ public:
    * with rank safepoint inside VM_ShenandoahReferenceOperation::doit_prologue(), which no Mutex rank
    * above all in-cycle locks can express.
    *
-   *          (control thread            (control thread waits for
-   *           runs a cycle)              its STW VM operation)
-   *   IDLE <----------------> CONTROL <------------------------> CONTROL_PARKED
-   *    ^                                                            ^
-   *    | (VM operation thread runs                (VM operation thread runs a GC
-   *    |  a GC inline for itself)                  inline on the parked owner's cycle)
-   *    v                                                            v
-   *   VM_INLINE                                             VM_INLINE_BORROWED
+   *                (control thread runs a cycle)
+   *   IDLE <-------------------------------------------> CONTROL
+   *    ^
+   *    | (VM operation thread runs a GC inline for itself, only possible while no
+   *    v  Control thread cycle is in flight, see run_gc_on_vm_thread())
+   *   VM_INLINE
    */
   enum SVMCycleState {
-    SVM_CYCLE_IDLE,               // no cycle
-    SVM_CYCLE_CONTROL,            // a Control thread owns the cycle and is running
-    SVM_CYCLE_CONTROL_PARKED,     // the owning Control thread waits for a STW VM operation
-    SVM_CYCLE_VM_INLINE,          // the VM operation thread runs a GC inline for itself
-    SVM_CYCLE_VM_INLINE_BORROWED  // ... on the cycle taken over from a parked Control thread
+    SVM_CYCLE_IDLE,      // no cycle
+    SVM_CYCLE_CONTROL,   // a Control thread owns the cycle
+    SVM_CYCLE_VM_INLINE  // the VM operation thread runs a GC inline for itself
   };
   volatile SVMCycleState _svm_cycle_state;
 
-  // Incremented for every completed inline GC before the state leaves VM_INLINE*. A change
+  // Incremented for every completed inline GC before the state leaves VM_INLINE. A change
   // invalidates a cycle decision computed before: the inline GC cleared the cancellation and reset
   // the marking state (see run_service() and ShenandoahDegenGC::op_degenerated()).
   volatile size_t _svm_inline_gc_count;
@@ -147,27 +143,16 @@ public:
   volatile int _svm_pending_waiter_notify;
 
   friend class ShenandoahSVMCycleOwnershipMark;
-  friend class ShenandoahSVMParkedForVMOperationMark;
 
   // Cycle ownership for a Control thread (used via ShenandoahSVMCycleOwnershipMark). The acquisition
   // wait is bounded because the only other owner is the VM operation thread running an inline STW GC.
   void svm_acquire_cycle_ownership();
   void svm_release_cycle_ownership();
 
-  // The window in which the owning Control thread waits for a STW VM operation (used via
-  // ShenandoahSVMParkedForVMOperationMark, which VMThread::execute() creates).
-  void svm_mark_cycle_parked();
-  void svm_unmark_cycle_parked();
-
-  // Takes the cycle over from an owner that is parked waiting for a STW VM operation, so that the
-  // VM operation thread can run a GC inline. Only possible while no cycle is open, see
-  // ShenandoahSVMParkedForVMOperationMark. svm_finish_inline_gc() hands the cycle back.
-  bool svm_try_borrow_parked_cycle();
-
   // True if the VM operation thread currently runs an inline GC.
   bool svm_inline_gc_in_progress() const;
 
-  // Called by the VM thread to publish an inline GC's completion and leave the VM_INLINE* state.
+  // Called by the VM thread to publish an inline GC's completion and leave the VM_INLINE state.
   void svm_finish_inline_gc();
 
   // Number of inline GCs the VM operation thread has completed. A change invalidates a cycle
@@ -200,50 +185,6 @@ public:
 
 
 #ifdef SVM
-/*
- * Marks the window in which a Control thread waits for a STW VM operation that it handed to the VM
- * operation thread. While the owner waits, the VM operation thread may take the cycle over to run a
- * GC inline for itself (svm_try_borrow_parked_cycle()). Created by VMThread::execute() for every VM
- * operation a Control thread executes, so no GC call site needs to be instrumented.
- *
- * This is needed to make progress because in SVM the VM thread is a Java thread that can allocate
- * while executing a VM operation, and the Control thread cannot get any STW work executed until the VM
- * operation thread's current operation completes, while that operation may in turn be waiting for the
- * memory that only a GC can provide. Without taking the cycle over, both sides wait for each other.
- *
- * Taking the cycle over is safe precisely because the owner is parked and executes no GC code while
- * waiting, and the operation it waits for cannot run before the VM operation thread returns to its
- * operation loop. The inline GC and the owner's pending operation therefore never overlap, they are
- * serialized on the VM operation thread. It is restricted to owners that have no cycle open (see
- * svm_try_borrow_parked_cycle()). The STW cycles open theirs on the VM operation thread inside the
- * operation, so an owner parked for a degenerated or full GC holds none, whereas an owner parked for
- * a STW phase of a concurrent cycle does, and a second cycle must not be started underneath it.
- */
-class ShenandoahSVMParkedForVMOperationMark : public StackObj {
-private:
-  ShenandoahController* const _controller;
-  const bool                  _active;
-
-public:
-  ShenandoahSVMParkedForVMOperationMark(ShenandoahController* controller) :
-    _controller(controller),
-    // Only the Control thread parks, and only while it owns the cycle (it can also execute VM
-    // operations outside of a cycle, e.g. handshake fallbacks). Reading the state without further
-    // synchronization is safe because while this thread owns the cycle, no other thread writes the state.
-    _active(controller != nullptr && Thread::current() == (Thread*)controller &&
-            Atomic::load(&controller->_svm_cycle_state) == ShenandoahController::SVM_CYCLE_CONTROL) {
-    if (_active) {
-      _controller->svm_mark_cycle_parked();
-    }
-  }
-
-  ~ShenandoahSVMParkedForVMOperationMark() {
-    if (_active) {
-      _controller->svm_unmark_cycle_parked();
-    }
-  }
-};
-
 // The Control thread owns the single logical GC for the duration of a full cycle.
 class ShenandoahSVMCycleOwnershipMark : public StackObj {
   ShenandoahController* const _controller;

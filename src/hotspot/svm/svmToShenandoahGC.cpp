@@ -217,6 +217,12 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   SVMIsolateData::_heap_base = heap_base;
   SVMIsolateData::_image_heap_region_types = image_heap_region_types;
   SVMIsolateData::_image_heap_region_free_spaces = image_heap_region_free_spaces;
+  SVMIsolateData::_closed_image_heap_start_addr = heap_base + SVMGlobalData::_null_regions_size;
+  SVMIsolateData::_closed_image_heap_end_addr = SVMIsolateData::_closed_image_heap_start_addr +
+                                                closed_image_heap_regions * ShenandoahHeapRegion::region_size_bytes();
+  SVMIsolateData::_open_image_heap_start_addr = SVMIsolateData::_closed_image_heap_end_addr;
+  SVMIsolateData::_open_image_heap_end_addr = SVMIsolateData::_open_image_heap_start_addr +
+                                              open_image_heap_regions * ShenandoahHeapRegion::region_size_bytes();
   SVMIsolateData::_static_object_fields = static_object_fields;
   SVMIsolateData::_static_primitive_fields = static_primitive_fields;
   SVMIsolateData::_vm_operation_thread = vm_operation_thread;

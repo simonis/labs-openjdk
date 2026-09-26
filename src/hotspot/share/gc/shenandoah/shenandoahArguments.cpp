@@ -46,6 +46,18 @@ void ShenandoahArguments::initialize() {
   vm_exit_during_initialization("Shenandoah GC is not supported on this platform.");
 #endif
 
+#ifdef SVM
+  // SVM does not apply the "SoftMaxHeapSize defaults to MaxHeapSize" ergonomic default that HotSpot
+  // applies in GCArguments::initialize_heap_flags_and_sizes(), so the flag is still 0 here unless the
+  // user set it explicitly. A soft max of 0 breaks the invariant asserted by
+  // ShenandoahHeap::soft_max_capacity() (min_capacity() <= soft max <= max_capacity()) and tells the
+  // heuristics that the heap is permanently above its soft limit. Set the flag itself, so that both
+  // the initial value and ShenandoahHeap::check_soft_max_changed() observe a consistent default.
+  if (FLAG_IS_DEFAULT(SoftMaxHeapSize)) {
+    FLAG_SET_ERGO(SoftMaxHeapSize, MaxHeapSize);
+  }
+#endif // SVM
+
 #if 0 // leave this block as stepping stone for future platforms
   log_warning(gc)("Shenandoah GC is not fully supported on this platform:");
   log_warning(gc)("  concurrent modes are not supported, only STW cycles are enabled;");

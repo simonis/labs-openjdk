@@ -1116,6 +1116,22 @@ HeapWord* ShenandoahHeap::allocate_memory(ShenandoahAllocRequest& req) {
 }
 
 inline bool ShenandoahHeap::should_retry_allocation(size_t original_full_gc_count) const {
+#ifdef SVM
+  // In SVM the VM operation thread is a regular Java thread that allocates inside VM operations, and
+  // an OutOfMemoryError there is fatal (VM operations must not throw). Its allocation failure runs a
+  // full GC inline (see ShenandoahController::run_gc_on_vm_thread()), but by the time the VM operation
+  // thread retries, other threads that allocate at full speed may have refilled the heap the GC just
+  // freed - under CPU contention this race is lost regularly with small heaps. The HotSpot rule
+  // "give up after one full GC" would then turn a lost race into a fatal error, although the heap is
+  // not exhausted. So the VM operation thread keeps retrying as long as the full GCs since it started
+  // waiting made good progress (a genuinely exhausted heap reports no progress and fails exactly as
+  // before), bounded by ShenandoahNoProgressThreshold full GCs. Mutators keep the HotSpot policy.
+  if (Thread::current()->is_VM_thread()) {
+    const size_t full_gcs = shenandoah_policy()->full_gc_count() - original_full_gc_count;
+    return (full_gcs == 0 || (full_gcs <= ShenandoahNoProgressThreshold && get_gc_no_progress_count() == 0))
+        && !shenandoah_policy()->is_at_shutdown();
+  }
+#endif // SVM
   return shenandoah_policy()->full_gc_count() == original_full_gc_count
       && !shenandoah_policy()->is_at_shutdown();
 }

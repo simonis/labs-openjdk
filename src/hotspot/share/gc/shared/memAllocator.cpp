@@ -36,6 +36,7 @@
 #include "runtime/continuationJavaClasses.inline.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/javaThread.hpp"
+#include "runtime/orderAccess.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "services/lowMemoryDetector.hpp"
 #include "utilities/align.hpp"
@@ -399,6 +400,13 @@ oop MemAllocator::finish(HeapWord* mem) const {
   assert(mem != nullptr, "null object pointer");
 #ifdef SVM
   oopDesc::initialize_obj_header(mem, _klass);
+  // The compiled code of SVM publishes the result of a slow-path allocation (this code) with plain
+  // stores, and - unlike its inlined TLAB fast path - emits no StoreStore barrier after the
+  // allocation call. On weakly ordered CPUs (AArch64) a concurrent GC thread (e.g., Shenandoah's
+  // concurrent marking) could otherwise observe the reference to the new object before its header,
+  // length and zeroed contents. Order them before any later store of the reference, like the
+  // StoreStore barrier that HotSpot's compilers emit after every allocation.
+  OrderAccess::storestore();
 #else
   // Need a release store to ensure array/class length, mark word, and
   // object zeroing are visible before setting the klass non-null, for

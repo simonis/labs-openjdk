@@ -736,7 +736,25 @@ EXPORT_FOR_SVM void svm_gc_get_region_boundaries(ShenandoahRegionBoundaries *reg
   assert(Thread::current()->is_VM_thread(), "must be the VM thread");
   assert(IsolateThread::current()->has_status_native_or_safepoint(), "unexpected thread state");
 
-  Unimplemented();
+  ShenandoahHeap *sh = ShenandoahHeap::heap();
+  sh->ensure_parsability(false);
+
+  int regions = sh->num_regions();
+  for (int i = 0; i < regions; i++) {
+    ShenandoahHeapRegion *hr = sh->get_region(i);
+    ShenandoahRegionBoundaries& boundaries = region_boundaries[i];
+
+    if (hr == nullptr || hr->is_humongous_continuation()) {
+      // ContinuesHumongous regions can be skipped during heap traversal,
+      // as the object will be visited in the StartHumongous region anyways
+      boundaries.bottom = 0;
+      boundaries.top = 0;
+    } else {
+      boundaries.bottom = (u_char*)hr->bottom();
+      boundaries.top = (u_char*)hr->top();
+    }
+  }
+
 }
 
 // NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread.
@@ -803,7 +821,7 @@ EXPORT_FOR_SVM bool svm_gc_get_region_info(int region_index, ShenandoahRegionInf
     region_info->bottom = (u_char*)region->bottom();
     region_info->end = (u_char*)region->end();
     region_info->top = (u_char*)region->top();
-    region_info->region_type = region->state(); // TODO: region state is bigger than 'char' for image heap regions.
+    region_info->region_type = region->state();
     return true;
   }
   return false;

@@ -174,7 +174,11 @@ void SVMGlobalData::verify_offsets(bool use_perf_data) {
 
   if (use_perf_data) {
 #if INCLUDE_SHENANDOAHGC
-    Unimplemented();
+    // 'use_perf_data' is set depending on the value of '--enable-monitoring=jvmstat`/'-H:EnableMonitoringFeatures=jvmstat'
+    // in com.oracle.svm.core.VMInspectionOptions, so we need an extra check for 'UsePerfData' here.
+    if (UsePerfData) {
+      Unimplemented();
+    }
 #else
     assert(SVMGlobalData::_offsets._tlab_perf_data._alloc_threads > oopDesc::klass_offset_in_bytes(), "must be");
     assert(SVMGlobalData::_offsets._tlab_perf_data._fills > oopDesc::klass_offset_in_bytes(), "must be");

@@ -34,6 +34,7 @@
 #include "gc/shared/gcArguments.hpp"
 #include "gc/shared/gcCause.hpp"
 #include "gc/shenandoah/shenandoahBarrierSet.inline.hpp"
+#include "gc/shenandoah/shenandoahMetaspace.hpp"
 #include "logging/logConfiguration.hpp"
 #include "oops/arrayKlass.inline.hpp"
 #include "oops/compressedOops.inline.hpp"
@@ -94,10 +95,10 @@ static inline jlong convert_size_t_to_jlong(size_t val) {
 extern "C" {
 // NO_TRANSITION - This method is called during startup, before anything else is initialized.
 EXPORT_FOR_SVM void svm_gc_parse_options(int actual_native_image_version, int argc, char *argv[], char *image_build_hosted_args, char *image_build_runtime_args,
-    size_t max_heap_address_space_size, size_t heap_base_alignment, size_t null_regions_size, size_t image_heap_size,
+    size_t max_heap_address_space_size, size_t heap_base_alignment, size_t null_regions_size, size_t metaspace_size, size_t image_heap_size,
     int compressed_reference_shift, bool is_containerized, jlong container_memory_limit_in_bytes, int container_active_processor_count, ShenandoahHeapOptions *result) {
   // verify invariants
-  int expected_native_image_version = 250101;
+  int expected_native_image_version = 250501;
   guarantee(actual_native_image_version >= expected_native_image_version, "incompatible GC version: the native-image tries to use a GC that is too new");
   guarantee(actual_native_image_version <= expected_native_image_version, "incompatible GC version: the native-image tries to use a GC that is too old");
 #ifdef SVM_COMPRESSED_REFERENCES
@@ -122,6 +123,7 @@ EXPORT_FOR_SVM void svm_gc_parse_options(int actual_native_image_version, int ar
 
   SVMGlobalData::_heap_base_alignment = heap_base_alignment;
   SVMGlobalData::_null_regions_size = null_regions_size;
+  SVMGlobalData::_metaspace_size = metaspace_size;
   SVMGlobalData::_image_heap_size = image_heap_size;
   SVMGlobalData::_image_build_hosted_args = image_build_hosted_args;
   SVMGlobalData::_image_build_runtime_args = image_build_runtime_args;
@@ -217,7 +219,9 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   SVMIsolateData::_heap_base = heap_base;
   SVMIsolateData::_image_heap_region_types = image_heap_region_types;
   SVMIsolateData::_image_heap_region_free_spaces = image_heap_region_free_spaces;
-  SVMIsolateData::_closed_image_heap_start_addr = heap_base + SVMGlobalData::_null_regions_size;
+  SVMIsolateData::_metaspace_start_addr = heap_base + SVMGlobalData::_null_regions_size;
+  SVMIsolateData::_metaspace_end_addr = SVMIsolateData::_metaspace_start_addr + SVMGlobalData::_metaspace_size;
+  SVMIsolateData::_closed_image_heap_start_addr = SVMIsolateData::_metaspace_end_addr;
   SVMIsolateData::_closed_image_heap_end_addr = SVMIsolateData::_closed_image_heap_start_addr +
                                                 closed_image_heap_regions * ShenandoahHeapRegion::region_size_bytes();
   SVMIsolateData::_open_image_heap_start_addr = SVMIsolateData::_closed_image_heap_end_addr;
@@ -282,6 +286,12 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   }
 
   CompressedOops::initialize();
+  // Register a (minimal, empty) metaspace so the shared CollectedHeap code that unconditionally
+  // queries SVMMetaspace::metaspace() has a valid instance. Runtime class loading is not supported
+  // for Shenandoah yet, so this metaspace is always empty. Must happen before Threads::create_vm,
+  // which runs universe_post_init -> CollectedHeap::update_capacity_and_used_at_gc.
+  static ShenandoahMetaspace shenandoah_metaspace;
+  shenandoah_metaspace.initialize();
   jint result = Threads::create_vm(isolate_thread);
 
 #if defined(PRINT_NI_OPTIONS) && !defined(PRODUCT)
@@ -296,17 +306,18 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
     guarantee(SafepointSynchronize::get_safepoint_state() == SafepointSynchronize::not_at_safepoint, "must not be at a safepoint");
 
     // return a data structure with relevant offsets and constants (some of the values depend on the VM arguments)
-    // TODO: 'card_table_offset' is not constant in Shenandoah (see JDK-8343468)
+    // 'card_table_offset' is not constant in Shenandoah (see JDK-8343468)
     shenandoah_init_state.card_table_address = nullptr; //(address)ci_card_table_address();
     // Base of the Shenandoah collection-set fast-test map (biased by heap_base >> region_shift, so it
     // is indexed directly by object_address >> region_shift). Allocated once with the heap, so the
     // base is stable for the isolate's lifetime; the compiled CAS heal barrier uses it to skip the
     // heal stub for references that are not in the collection set. See svm_gc_load_reference_barrier_heal.
     shenandoah_init_state.cset_fast_test_address = (void*) ShenandoahHeap::in_cset_fast_test_addr();
-    shenandoah_init_state.tlab_top_offset = in_bytes(Thread::tlab_top_offset());
-    shenandoah_init_state.tlab_end_offset = in_bytes(Thread::tlab_end_offset());
+    shenandoah_init_state.tlab_top_offset = in_bytes(ShenandoahThreadLocalData::tlab_top_offset());
+    shenandoah_init_state.tlab_end_offset = in_bytes(ShenandoahThreadLocalData::tlab_end_offset());
     shenandoah_init_state.card_table_shift = CardTable::card_shift();
     shenandoah_init_state.log_of_heap_region_grain_bytes = 20;
+    shenandoah_init_state.barrier_and_allocation_data_size = sizeof(GCThreadLocalData);
     shenandoah_init_state.java_thread_size = sizeof(JavaThread);
     shenandoah_init_state.vm_operation_data_size = sizeof(VM_OperationData);
     shenandoah_init_state.vm_operation_wrapper_data_size = sizeof(VM_OperationWrapperData);
@@ -374,7 +385,8 @@ EXPORT_FOR_SVM bool svm_gc_teardown() {
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
 EXPORT_FOR_SVM void svm_gc_attach_thread(IsolateThread *thread) {
   assert(thread->has_status_created(), "unexpected thread state");
-  JavaThread *java_thread = new (thread->java_thread()) JavaThread();
+  JavaThread *java_thread = thread->java_thread();
+  java_thread = new (java_thread) JavaThread();
   assert(is_aligned(java_thread, wordSize), "must be");
   java_thread->initialize_thread_current();
   java_thread->initialize();

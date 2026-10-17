@@ -46,6 +46,9 @@ namespace svm_gc {
 class ShenandoahThreadLocalData {
 private:
   char _gc_state;
+#ifdef SVM
+  SVMThreadLocalAllocBufferData _tlab;
+#endif // SVM
   // Evacuation OOM state
   uint8_t                 _oom_scope_nesting_level;
   bool                    _oom_during_evac;
@@ -96,16 +99,28 @@ private:
   }
 
   static ByteSize satb_mark_queue_offset() {
+#ifdef SVM
+    return byte_offset_of(ShenandoahThreadLocalData, _satb_mark_queue);
+#else
     return Thread::gc_data_offset() + byte_offset_of(ShenandoahThreadLocalData, _satb_mark_queue);
+#endif // SVM
   }
 
 public:
   static void create(Thread* thread) {
+#ifdef SVM
+    ShenandoahThreadLocalData* thread_data = new (data(thread)) ShenandoahThreadLocalData();
+    thread->tlab().set_allocation_data(&thread_data->_tlab);
+#else
     new (data(thread)) ShenandoahThreadLocalData();
+#endif // SVM
   }
 
   static void destroy(Thread* thread) {
     data(thread)->~ShenandoahThreadLocalData();
+#ifdef SVM
+    thread->tlab().set_allocation_data(nullptr);
+#endif // SVM
   }
 
   static SATBMarkQueue& satb_mark_queue(Thread* thread) {
@@ -290,12 +305,30 @@ public:
   }
 
   static ByteSize gc_state_offset() {
+#ifdef SVM
+    return byte_offset_of(ShenandoahThreadLocalData, _gc_state);
+#else
     return Thread::gc_data_offset() + byte_offset_of(ShenandoahThreadLocalData, _gc_state);
+#endif // SVM
   }
 
   static ByteSize card_table_offset() {
+#ifdef SVM
+    return byte_offset_of(ShenandoahThreadLocalData, _card_table);
+#else
     return Thread::gc_data_offset() + byte_offset_of(ShenandoahThreadLocalData, _card_table);
+#endif // SVM
   }
+
+#ifdef SVM
+  static ByteSize tlab_top_offset() {
+    return byte_offset_of(ShenandoahThreadLocalData, _tlab) + SVMThreadLocalAllocBufferData::top_offset();
+  }
+
+  static ByteSize tlab_end_offset() {
+    return byte_offset_of(ShenandoahThreadLocalData, _tlab) + SVMThreadLocalAllocBufferData::end_offset();
+  }
+#endif // SVM
 };
 
 STATIC_ASSERT(sizeof(ShenandoahThreadLocalData) <= sizeof(GCThreadLocalData));

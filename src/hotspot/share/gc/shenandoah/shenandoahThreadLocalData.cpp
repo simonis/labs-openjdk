@@ -33,6 +33,9 @@ namespace svm_gc {
 
 ShenandoahThreadLocalData::ShenandoahThreadLocalData() :
   _gc_state(0),
+#ifdef SVM
+  _tlab(),
+#endif // SVM
   _oom_scope_nesting_level(0),
   _oom_during_evac(false),
   _satb_mark_queue(&ShenandoahBarrierSet::satb_mark_queue_set()),

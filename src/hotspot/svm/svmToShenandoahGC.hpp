@@ -54,7 +54,7 @@ static struct ShenandoahInitState shenandoah_init_state;
 
 extern "C" {
   EXPORT_FOR_SVM void svm_gc_parse_options(int actual_native_image_version, int argc, char *argv[], char *image_build_hosted_args, char *image_build_runtime_args,
-      size_t max_heap_address_space_size, size_t heap_base_alignment, size_t null_regions_size, size_t image_heap_size,
+      size_t max_heap_address_space_size, size_t heap_base_alignment, size_t null_regions_size, size_t metaspace_size, size_t image_heap_size,
       int compressed_reference_shift, bool is_containerized, jlong container_memory_limit_in_bytes, int container_active_processor_count, ShenandoahHeapOptions *result);
 
   EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread, char *heap_base,

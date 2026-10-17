@@ -49,6 +49,7 @@ struct ShenandoahInitState {
   int card_table_shift;
   int card_table_offset;
   int log_of_heap_region_grain_bytes;
+  int barrier_and_allocation_data_size;
   int java_thread_size;
   int vm_operation_data_size;
   int vm_operation_wrapper_data_size;

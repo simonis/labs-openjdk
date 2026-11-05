@@ -194,6 +194,8 @@ void GCConfig::initialize() {
 #ifdef SVM
 #if INCLUDE_G1GC
   _arguments = &g1Arguments;
+#elif INCLUDE_SHENANDOAHGC
+  _arguments = &shenandoahArguments;
 #else
   Unimplemented();
 #endif // INCLUDE_G1GC
@@ -220,6 +222,8 @@ bool GCConfig::is_gc_selected(CollectedHeap::Name name) {
 #ifdef SVM
 #if INCLUDE_G1GC
   return name == CollectedHeap::G1;
+#elif INCLUDE_SHENANDOAHGC
+  return name == CollectedHeap::Shenandoah;
 #else
   Unimplemented();
 #endif // INCLUDE_G1GC

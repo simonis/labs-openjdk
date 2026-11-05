@@ -41,6 +41,14 @@
   template(G1PauseRemark)                         \
   template(G1PauseCleanup)                        \
   template(G1TryInitiateConcMark)                 \
+  template(ShenandoahFullGC)                      \
+  template(ShenandoahInitMark)                    \
+  template(ShenandoahFinalMarkStartEvac)          \
+  template(ShenandoahInitUpdateRefs)              \
+  template(ShenandoahFinalUpdateRefs)             \
+  template(ShenandoahFinalRoots)                  \
+  template(ShenandoahDegeneratedGC)               \
+  template(HandshakeFallback)                     \
 
 #ifdef SVM_COMPRESSED_REFERENCES
 

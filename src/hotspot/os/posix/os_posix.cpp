@@ -1001,13 +1001,11 @@ void os::naked_short_nanosleep(jlong ns) {
   return;
 }
 
-#ifndef SVM
 void os::naked_short_sleep(jlong ms) {
   assert(ms < MILLIUNITS, "Un-interruptable sleep, short time use only");
   os::naked_short_nanosleep(millis_to_nanos(ms));
   return;
 }
-#endif // !SVM
 
 char* os::Posix::describe_pthread_attr(char* buf, size_t buflen, const pthread_attr_t* attr) {
   size_t stack_size = 0;

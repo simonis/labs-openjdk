@@ -37,7 +37,9 @@ HSpaceCounters::HSpaceCounters(SVM_ONLY(int generation_ordinal) NOT_SVM(const ch
                                size_t initial_capacity) {
 
   if (UsePerfData) {
-#ifdef SVM
+#if defined(SVM) && INCLUDE_SHENANDOAHGC
+    Unimplemented();
+#elif defined(SVM)
     G1SpacePerfData *data = G1PerfData::get()->generation(generation_ordinal)->space(ordinal);
     data->max_capacity()->set_value((jlong)max_size);
     _capacity = data->capacity();

@@ -115,7 +115,10 @@ void CPUTimeCounters::create_counter(CPUTimeGroups::CPUTimeType group) {
 #endif // !SVM
 
 PerfCounter* CPUTimeCounters::get_counter(CPUTimeGroups::CPUTimeType name) {
-#ifdef SVM
+#if defined(SVM) && INCLUDE_SHENANDOAHGC
+  Unimplemented();
+  return nullptr;
+#elif defined(SVM)
   switch (name) {
     case CPUTimeGroups::CPUTimeType::gc_total:
       return G1PerfData::get()->cpu_time()->gc_total();

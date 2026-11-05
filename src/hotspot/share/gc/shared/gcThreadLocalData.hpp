@@ -41,15 +41,17 @@
 // often allows for a more compact instruction encoding.
 
 #ifdef SVM
-#if INCLUDE_G1GC
 
 namespace svm_gc {
 
+#if INCLUDE_G1GC
 typedef uint64_t GCThreadLocalData[10]; // 80 bytes
+#elif INCLUDE_SHENANDOAHGC
+typedef uint64_t GCThreadLocalData[17]; // 136 bytes (>= sizeof(ShenandoahThreadLocalData))
+#endif // INCLUDE_G1GC
 
 } // namespace svm_gc
 
-#endif // INCLUDE_G1GC
 #else
 
 namespace svm_gc {

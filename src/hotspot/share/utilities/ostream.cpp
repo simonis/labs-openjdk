@@ -218,13 +218,13 @@ void outputStream::move_to(int col, int slop, int min_space) {
     need_fill = min_space;
   sp(need_fill);
 }
+#endif // !SVM
 
 void outputStream::put(char ch) {
   assert(ch != 0, "please fix call site");
   char buf[] = { ch, '\0' };
   write(buf, 1);
 }
-#endif // !SVM
 
 void outputStream::sp(int count) {
   if (count < 0)  return;
@@ -679,9 +679,11 @@ FILE* defaultStream::_error_stream  = stderr;
 #ifndef SVM
 void defaultStream::init() {
   _inited = true;
+#ifndef SVM
   if (LogVMOutput || LogCompilation) {
     init_log();
   }
+#endif // !SVM
 }
 #endif // !SVM
 
@@ -1043,7 +1045,9 @@ void ostream_abort() {
 #ifndef SVM
   if (defaultStream::instance != nullptr) {
     static char buf[4096];
+#ifndef SVM
     defaultStream::instance->finish_log_on_error(buf, sizeof(buf));
+#endif // !SVM
   }
 #endif // !SVM
 }

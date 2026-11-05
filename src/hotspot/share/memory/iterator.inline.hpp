@@ -45,13 +45,17 @@
 #include "oops/instancePodKlass.inline.hpp"
 #endif // SVM
 
-#ifndef SVM
 // Defaults to strong claiming.
 
 namespace svm_gc {
 
 inline MetadataVisitingOopIterateClosure::MetadataVisitingOopIterateClosure(ReferenceDiscoverer* rd) :
-    ClaimMetadataVisitingOopIterateClosure(ClassLoaderData::_claim_strong, rd) {}
+    // In SVM, ClaimMetadataVisitingOopIterateClosure is typdefed to OopClosure, but we
+    // still have to pass the ReferenceDiscoverer argument to the Closure.
+    SVM_ONLY(ClaimMetadataVisitingOopIterateClosure(rd))
+    NOT_SVM(ClaimMetadataVisitingOopIterateClosure(ClassLoaderData::_claim_strong, rd)) {}
+
+#ifndef SVM
 
 inline void ClaimMetadataVisitingOopIterateClosure::do_cld(ClassLoaderData* cld) {
   cld->oops_do(this, _claim);
@@ -74,10 +78,9 @@ inline void ClaimMetadataVisitingOopIterateClosure::do_method(Method* m) {
   // Mark interpreted frames for class redefinition
   m->record_gc_epoch();
 }
+#endif // !SVM
 
 } // namespace svm_gc
-
-#endif // !SVM
 
 
 // Dispatch table implementation for *Klass::oop_oop_iterate

@@ -165,6 +165,10 @@ jlong java_lang_ref_SoftReference::timestamp(oop ref) {
 }
 
 
+jlong java_lang_ref_SoftReference::clock() {
+  return RawAccess<>::load_at((oop)SVMIsolateData::_static_primitive_fields, (ptrdiff_t)SVMGlobalData::_offsets._soft_reference._static_clock);
+}
+
 void java_lang_ref_SoftReference::set_clock(jlong value) {
   return RawAccess<>::store_at((oop)SVMIsolateData::_static_primitive_fields, (ptrdiff_t)SVMGlobalData::_offsets._soft_reference._static_clock, value);
 }

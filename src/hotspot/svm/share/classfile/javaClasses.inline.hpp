@@ -150,6 +150,10 @@ void java_lang_ref_Reference::set_next_raw(oop ref, oop value) {
   ref->obj_field_put_raw(SVMGlobalData::_offsets._reference._next, value);
 }
 
+HeapWord* java_lang_ref_Reference::next_addr_raw(oop ref) {
+  return ref->field_addr<HeapWord>(SVMGlobalData::_offsets._reference._next);
+}
+
 oop java_lang_ref_Reference::discovered(oop ref) {
   return ref->obj_field(SVMGlobalData::_offsets._reference._discovered);
 }

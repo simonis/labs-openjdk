@@ -95,6 +95,7 @@ class java_lang_ref_Reference: AllStatic {
   static inline oop next(oop ref);
   static inline void set_next(oop ref, oop value);
   static inline void set_next_raw(oop ref, oop value);
+  static inline HeapWord* next_addr_raw(oop ref);
   static inline oop discovered(oop ref);
   static inline void set_discovered_raw(oop ref, oop value);
   static inline HeapWord* discovered_addr_raw(oop ref);

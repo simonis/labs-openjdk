@@ -232,6 +232,7 @@ struct SVMOffsets {
   struct SVMSoftReferenceOffsets _soft_reference;
   struct SVMStackChunkOffsets _stack_chunk;
   struct SVMRuntimeCodeInfoMemoryOffsets _runtime_code_info_memory;
+#if INCLUDE_G1GC
   struct SVMG1TLABPerfDataOffsets _tlab_perf_data;
   struct SVMG1GCPolicyPerfDataOffsets _gc_policy_perf_data;
   struct SVMG1GCCausesPerfDataOffsets _gc_causes_perf_data;
@@ -241,6 +242,7 @@ struct SVMOffsets {
   struct SVMG1AgeTablePerfDataOffsets _age_table_perf_data;
   struct SVMG1CpuTimePerfDataOffsets _cpu_time_perf_data;
   struct SVMG1PerfDataOffsets _perf_data;
+#endif // INCLUDE_G1GC
   struct SVMPerfLongOffsets _perf_long;
   struct SVMPerfStringVariableOffsets _perf_string_variable;
 };
@@ -279,11 +281,19 @@ struct SVMGlobalData {
   static queueVmOperationFunc _execute_pause_remark_op;
   static queueVmOperationFunc _execute_pause_cleanup_op;
   static queueVmOperationFunc _collect_full_op;
+  static queueVmOperationFunc _collect_degenerated_op;
+  static queueVmOperationFunc _init_mark_op;
+  static queueVmOperationFunc _final_mark_op;
+  static queueVmOperationFunc _init_update_refs_op;
+  static queueVmOperationFunc _final_update_refs_op;
+  static queueVmOperationFunc _final_roots_op;
+  static queueVmOperationFunc _handshake_fallback_op;
   static queueVmOperationFunc _verify_heap_op;
   static queueVmOperationFunc _try_initiate_conc_mark_op;
   static vmOperationStatusFunc _wait_for_vm_operation_execution_status;
   static vmOperationStatusFunc _update_vm_operation_execution_status;
   static vmOperationDataFunc _is_vm_operation_finished;
+  static yieldToQueuedVmOperationsFunc _yield_to_queued_vm_operations;
   static fetchThreadStackFramesFunc _fetch_thread_stack_frames;
   static freeThreadStackFramesFunc _free_thread_stack_frames;
   static fetchContinuationStackFramesFunc _fetch_continuation_stack_frames;
@@ -294,6 +304,8 @@ struct SVMGlobalData {
   static threadStateTransitionFunc _transition_vm_to_native;
   static fastThreadStateTransitionFunc _try_fast_transition_native_to_vm;
   static threadStateTransitionFunc _slow_transition_native_to_vm;
+  static threadsLockFunc _lock_threads_read;
+  static threadsLockFunc _unlock_threads_read;
 
   static void initialize_offsets(char *offsets, int offsets_length);
   static void verify_offsets(bool use_perf_data);

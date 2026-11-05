@@ -102,7 +102,7 @@ public:
     return _special;
   }
 
-#ifndef SVM
+#if !defined(SVM) || INCLUDE_SHENANDOAHGC
   ReservedSpace partition(size_t offset, size_t partition_size, size_t alignment) const {
     assert(offset + partition_size <= size(), "partition failed");
 
@@ -136,7 +136,7 @@ public:
   ReservedSpace last_part (size_t split_offset) const {
     return last_part(split_offset, _alignment);
   }
-#endif // !SVM
+#endif // !SVM || INCLUDE_SHENANDOAHGC
 };
 
 // Class encapsulating behavior specific to memory reserved for the Java heap.

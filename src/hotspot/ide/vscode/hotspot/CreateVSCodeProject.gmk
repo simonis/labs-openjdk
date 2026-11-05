@@ -1,0 +1,96 @@
+#
+# Copyright (c) 2019, 2025, Oracle and/or its affiliates. All rights reserved.
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+# This code is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.  Oracle designates this
+# particular file as subject to the "Classpath" exception as provided
+# by Oracle in the LICENSE file that accompanied this code.
+#
+# This code is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# version 2 for more details (a copy is included in the LICENSE file that
+# accompanied this code).
+#
+# You should have received a copy of the GNU General Public License version
+# 2 along with this work; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+# or visit www.oracle.com if you need additional information or have any
+# questions.
+#
+
+# This file contains just enough from the original make/ide/vscode/hotspot/CreateVSCodeProject.gmk
+# to create a VS Code workspace with ccls as indexer from the Shenandoah for SubstrateVM sources
+# in this branch.
+
+COMPILE_COMMANDS := $(BUILD_DIR)/compile_commands.json
+override VSCODE := vscode_ccls
+
+VSCODE_INDEXER := ccls
+
+DOLLAR := $$
+DQUOTE := "
+#"
+define NEWLINE
+
+
+endef
+
+FixPath = \
+    $1
+
+################################################################################
+# SedEscape
+#
+# Escape special characters for use in SED replacement string
+################################################################################
+SedEscape = $(subst !,\!,$(subst \,\\,$1))
+
+################################################################################
+# Return the full path to an indexer-specific file fragment.
+#
+# Param 1: Fragment name
+################################################################################
+GetIndexerFragment = \
+    $(PROJECT_ROOT)ide/vscode/hotspot/indexers/$(VSCODE_INDEXER)-$(1).txt
+
+################################################################################
+# Create a project configuration from a given template, replacing a known set
+# of variables.
+#
+# Param 1: Template
+# Param 2: Output
+################################################################################
+define CreateFromTemplate
+	@echo Generating $2
+	$(QUIETLY) sed -e '/{{INDEXER_EXTENSIONS}}/r $(call GetIndexerFragment,extensions)' \
+	    -e '/{{INDEXER_SETTINGS}}/r $(call GetIndexerFragment,settings)' $1 | \
+	sed -e 's!{{TOPDIR}}!$(call SedEscape,$(call FixPath,$(PROJECT_ROOT)))!g' \
+	    -e 's!{{TOPDIR_RELATIVE}}!$(call SedEscape,$(call FixPath,$(BUILD_DIR)))!g' \
+	    -e 's!{{WORKSPACE_ROOT}}!$(call SedEscape,$(call FixPath,$(WORKSPACE_ROOT)))!g' \
+	    -e 's!{{OUTPUTDIR}}!$(call SedEscape,$(call FixPath,$(BUILD_DIR)))!g' \
+	    -e 's!{{CONF_NAME}}!$(CONF_NAME)!g' \
+	    -e 's!{{COMPILER}}!$(call SedEscape,$(call FixPath,$(CXX))) $(SYSROOT_CFLAGS)!g' \
+	    -e 's!{{MAKE}}!$(call SedEscape,$(call FixPath,$(MAKE)))!g' \
+	    -e 's!{{PATH}}!$(call SedEscape,$(call FixPath,$(PATH)))!g' \
+	    -e 's!{{DEBUGENGINENAME}}!$(call DebugEngineName)!g' \
+	    -e '/{{INDEXER_EXTENSIONS}}/d' \
+	    -e '/{{INDEXER_SETTINGS}}/d' \
+	    -e '/{{EXTRA_WORKSPACE_ROOT}}/d' \
+	    > $2
+endef
+
+$(COMPILE_COMMANDS).tmp:
+	$(foreach src, $(CPP_SOURCES), $(shell echo "{ \"directory\": \""$(PROJECT_ROOT)"\", \"file\": \""$(src)"\", \"command\": \""$(CC) -Wno-format-zero-length -c -MD $(subst $(DQUOTE),\$(DQUOTE),$(CPPFLAGS)) $(INCLUDES) $(DEFINES) $(src) -o $(src:$(PROJECT_ROOT)%.cpp=$(BUILD_DIR)/%.o)"\" }," >> $(COMPILE_COMMANDS).tmp))
+
+$(COMPILE_COMMANDS): $(COMPILE_COMMANDS).tmp
+	$(QUIETLY) sed -e '1s/^/[\$(NEWLINE)/' -e '$(DOLLAR)s/,\s\{0,\}$(DOLLAR)/\$(NEWLINE)]/' $(COMPILE_COMMANDS).tmp > $(COMPILE_COMMANDS)
+	$(QUIETLY) rm $(COMPILE_COMMANDS).tmp
+
+vscode_ccls: $(COMPILE_COMMANDS)
+	$(call CreateFromTemplate, $(PROJECT_ROOT)ide/vscode/hotspot/template-workspace.jsonc, $(BUILD_DIR)/hotspot.code-workspace)
+

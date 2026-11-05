@@ -316,19 +316,22 @@ CollectedHeap::CollectedHeap() :
   size_t min_size = min_dummy_object_size();
   _lab_alignment_reserve = min_size > (size_t)MinObjAlignment ? align_object_size(min_size) : 0;
 
-  // NOTE (chaeubl): not needed because _filler_array_max_size is overwritten in G1CollectedHeap.
-#ifndef SVM
+  // NOTE (chaeubl): not needed for G1 because _filler_array_max_size is overwritten in G1CollectedHeap.
+  // NOTE (simonis): but needed for Shenandoah
+#if !defined(SVM) || defined(INCLUDE_SHENANDOAHGC)
   const size_t max_len = size_t(arrayOopDesc::max_array_length(T_INT));
   const size_t elements_per_word = HeapWordSize / sizeof(jint);
   _filler_array_max_size = align_object_size(filler_array_hdr_size() +
                                              max_len / elements_per_word);
-#endif // !SVM
+#endif // !SVM || INCLUDE_SHENANDOAHGC
 
   NOT_PRODUCT(_promotion_failure_alot_count = 0;)
   NOT_PRODUCT(_promotion_failure_alot_gc_number = 0;)
 
   if (UsePerfData) {
-#ifdef SVM
+#if defined(SVM) && INCLUDE_SHENANDOAHGC
+    Unimplemented();
+#elif defined(SVM)
     G1GCCausesPerfData *data = G1PerfData::get()->causes();
     _perf_gc_cause = data->cause();
     _perf_gc_cause->set_value(GCCause::to_string(_gc_cause));

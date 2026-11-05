@@ -33,7 +33,9 @@ GCPolicyCounters::GCPolicyCounters(const char* name, int collectors,
                                    int generations) {
 
   if (UsePerfData) {
-#ifdef SVM
+#if defined(SVM) && INCLUDE_SHENANDOAHGC
+    Unimplemented();
+#elif defined(SVM)
     G1GCPolicyPerfData *data = G1PerfData::get()->gc_policy();
     data->max_tenuring_threshold()->set_value(MaxTenuringThreshold);
     _tenuring_threshold = data->tenuring_threshold();

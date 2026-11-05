@@ -141,6 +141,10 @@
           "Print more information about the heap "                          \
           "before and after each collection.")                              \
                                                                             \
+  ni_runtime(ccstr, VerboseGCLevel, "info",                                 \
+          "Log level for VerboseGC. One of: off, trace, debug, info, "      \
+          "warn, error.")                                                   \
+                                                                            \
   ni_runtime(size_t, ReservedAddressSpaceSize, 0,                           \
           "The number of bytes that should be reserved for "                \
           "the heap address space.")                                        \
@@ -174,7 +178,7 @@
   product(bool, UseZGC, false,                                              \
           "Use the Z garbage collector")                                    \
                                                                             \
-  product(bool, UseShenandoahGC, false,                                     \
+  product(bool, UseShenandoahGC, true,                                     \
           "Use the Shenandoah garbage collector")                           \
                                                                             \
   /* notice: the max range value here is INT_MAX not UINT_MAX  */           \
@@ -581,7 +585,7 @@
           "Maximum heap size (in bytes)")                                   \
           constraint(MaxHeapSizeConstraintFunc,AfterErgo)                   \
                                                                             \
-  product(size_t, SoftMaxHeapSize, 0, MANAGEABLE,                           \
+  ni_runtime(size_t, SoftMaxHeapSize, 0, MANAGEABLE,                        \
           "Soft limit for maximum heap size (in bytes)")                    \
           constraint(SoftMaxHeapSizeConstraintFunc,AfterMemoryInit)         \
                                                                             \

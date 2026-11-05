@@ -66,6 +66,16 @@ class GCCause : public AllStatic {
     _codecache_GC_threshold,
     _codecache_GC_aggressive,
 
+    // GC causes required for the Shenandoah port
+    _shenandoah_stop_vm,
+    _shenandoah_allocation_failure_evac,
+    _shenandoah_humongous_allocation_failure,
+    _shenandoah_concurrent_gc,
+    _shenandoah_upgrade_to_full_gc,
+    _allocation_failure,
+    _metadata_GC_clear_soft_refs,
+    _full_gc_alot,
+
     _last_gc_cause
   };
 

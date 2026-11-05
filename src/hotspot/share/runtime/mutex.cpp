@@ -245,13 +245,13 @@ bool Mutex::try_lock() {
   return try_lock_inner(true /* do_rank_checks */);
 }
 
-#ifndef SVM
 bool Mutex::try_lock_without_rank_check() {
   bool res = try_lock_inner(false /* do_rank_checks */);
   DEBUG_ONLY(if (res) _skip_rank_check = true;)
   return res;
 }
 
+#ifndef SVM
 void Mutex::release_for_safepoint() {
   assert_owner(nullptr);
   _lock.unlock();

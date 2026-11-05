@@ -79,11 +79,19 @@ queueVmOperationFunc SVMGlobalData::_collect_for_allocation_op = nullptr;
 queueVmOperationFunc SVMGlobalData::_execute_pause_remark_op = nullptr;
 queueVmOperationFunc SVMGlobalData::_execute_pause_cleanup_op = nullptr;
 queueVmOperationFunc SVMGlobalData::_collect_full_op = nullptr;
+queueVmOperationFunc SVMGlobalData::_collect_degenerated_op = nullptr;
+queueVmOperationFunc SVMGlobalData::_init_mark_op = nullptr;
+queueVmOperationFunc SVMGlobalData::_final_mark_op = nullptr;
+queueVmOperationFunc SVMGlobalData::_init_update_refs_op = nullptr;
+queueVmOperationFunc SVMGlobalData::_final_update_refs_op = nullptr;
+queueVmOperationFunc SVMGlobalData::_final_roots_op = nullptr;
+queueVmOperationFunc SVMGlobalData::_handshake_fallback_op = nullptr;
 queueVmOperationFunc SVMGlobalData::_verify_heap_op = nullptr;
 queueVmOperationFunc SVMGlobalData::_try_initiate_conc_mark_op = nullptr;
 vmOperationStatusFunc SVMGlobalData::_wait_for_vm_operation_execution_status = nullptr;
 vmOperationStatusFunc SVMGlobalData::_update_vm_operation_execution_status = nullptr;
 vmOperationDataFunc SVMGlobalData::_is_vm_operation_finished = nullptr;
+yieldToQueuedVmOperationsFunc SVMGlobalData::_yield_to_queued_vm_operations = nullptr;
 fetchThreadStackFramesFunc SVMGlobalData::_fetch_thread_stack_frames = nullptr;
 freeThreadStackFramesFunc SVMGlobalData::_free_thread_stack_frames = nullptr;
 fetchContinuationStackFramesFunc SVMGlobalData::_fetch_continuation_stack_frames = nullptr;
@@ -94,6 +102,8 @@ cleanRuntimeCodeCacheFunc SVMGlobalData::_clean_runtime_code_cache = nullptr;
 threadStateTransitionFunc SVMGlobalData::_transition_vm_to_native = nullptr;
 fastThreadStateTransitionFunc SVMGlobalData::_try_fast_transition_native_to_vm = nullptr;
 threadStateTransitionFunc SVMGlobalData::_slow_transition_native_to_vm = nullptr;
+threadsLockFunc SVMGlobalData::_lock_threads_read = nullptr;
+threadsLockFunc SVMGlobalData::_unlock_threads_read = nullptr;
 
 void SVMGlobalData::initialize_offsets(char *offsets, int offsets_length) {
   guarantee(offsets_length == sizeof(SVMOffsets), "must match");
@@ -168,6 +178,9 @@ void SVMGlobalData::verify_offsets(bool use_perf_data) {
   assert(SVMGlobalData::_offsets._runtime_code_info_memory._table > oopDesc::klass_offset_in_bytes(), "must be");
 
   if (use_perf_data) {
+#if INCLUDE_SHENANDOAHGC
+    Unimplemented();
+#else
     assert(SVMGlobalData::_offsets._tlab_perf_data._alloc_threads > oopDesc::klass_offset_in_bytes(), "must be");
     assert(SVMGlobalData::_offsets._tlab_perf_data._fills > oopDesc::klass_offset_in_bytes(), "must be");
     assert(SVMGlobalData::_offsets._tlab_perf_data._max_fills > oopDesc::klass_offset_in_bytes(), "must be");
@@ -217,6 +230,7 @@ void SVMGlobalData::verify_offsets(bool use_perf_data) {
     assert(SVMGlobalData::_offsets._perf_long._value > oopDesc::klass_offset_in_bytes(), "must be");
 
     assert(SVMGlobalData::_offsets._perf_string_variable._null_terminated_value > oopDesc::klass_offset_in_bytes(), "must be");
+#endif // INCLUDE_SHENANDOAHGC
   }
 }
 

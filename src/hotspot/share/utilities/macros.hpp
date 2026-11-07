@@ -227,12 +227,14 @@
 #define NOT_SHENANDOAHGC(x)
 #define NOT_SHENANDOAHGC_RETURN        /* next token must be ; */
 #define NOT_SHENANDOAHGC_RETURN_(code) /* next token must be ; */
+#define trueIfShenandoahIsIncluded true
 #else
 #define SHENANDOAHGC_ONLY(x)
 #define SHENANDOAHGC_ONLY_ARG(arg)
 #define NOT_SHENANDOAHGC(x) x
 #define NOT_SHENANDOAHGC_RETURN        {}
 #define NOT_SHENANDOAHGC_RETURN_(code) { return code; }
+#define trueIfShenandoahIsIncluded false
 #endif // INCLUDE_SHENANDOAHGC
 
 #ifndef INCLUDE_ZGC

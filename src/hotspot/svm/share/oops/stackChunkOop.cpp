@@ -53,12 +53,40 @@ public:
 
   template <class T> inline void do_oop_work(T* p) {
     oop value = (oop)HeapAccess<>::oop_load(p);
+    if (value == nullptr) {
+      // "null" can be encoded as "heap base" in Native Image stack frame chunks and oop_load()
+      // automatically decodes "heap base" to "nullptr", but oop_store() literally writes
+      // "null" back into the heap. in order to avoid confusion, better skip null values here.
+      return;
+    }
     HeapAccess<>::oop_store(p, value);
   }
 };
 
 void stackChunkOopDesc::do_barriers() {
   BarrierClosure oops_closure;
+  iterate_stack(&oops_closure);
+}
+
+class LoadBarrierClosure: public OopClosure {
+public:
+  LoadBarrierClosure() {}
+
+  virtual void do_oop(oop* p)       override { do_oop_work(p); }
+  virtual void do_oop(narrowOop* p) override { do_oop_work(p); }
+
+  template <class T> inline void do_oop_work(T* p) {
+    // The load barrier of GCs that need it (e.g. Shenandoah) heals the location in place.
+    oop value = (oop)HeapAccess<>::oop_load(p);
+    // Never store null back: see BarrierClosure (null may be encoded as the heap base).
+    if (value != nullptr && RawAccess<>::oop_load(p) != value) {
+      RawAccess<>::oop_store(p, value);
+    }
+  }
+};
+
+void stackChunkOopDesc::do_load_barriers() {
+  LoadBarrierClosure oops_closure;
   iterate_stack(&oops_closure);
 }
 

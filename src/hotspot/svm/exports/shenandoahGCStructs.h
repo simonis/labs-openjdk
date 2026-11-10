@@ -44,6 +44,7 @@ struct ShenandoahHeapOptions {
 struct ShenandoahInitState {
   void* card_table_address;
   void* cset_fast_test_address;
+  void* aux_bitmap_address;
   int tlab_top_offset;
   int tlab_end_offset;
   int card_table_shift;
@@ -58,6 +59,7 @@ struct ShenandoahInitState {
   int mark_offset;
   int gc_state_offset;
   int cset_map_offset;
+  int aux_bitmap_shift;
   char dirty_card_value;
 };
 

@@ -317,7 +317,7 @@ public:
   void heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool include_image_heap = false) const;
   void parallel_heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool include_image_heap = false) const;
 #else
-  void heap_region_iterate(ShenandoahHeapRegionClosure* blk SVM_ONLY(, bool include_image_heap =false)) const;
+  void heap_region_iterate(ShenandoahHeapRegionClosure* blk) const;
   void parallel_heap_region_iterate(ShenandoahHeapRegionClosure* blk) const;
 #endif // SVM
 
@@ -682,6 +682,16 @@ public:
 
   // Used for native heap walkers: heap dumpers, mostly
   void object_iterate(ObjectClosure* cl) override;
+#ifdef SVM
+  // For the creation of heap dumps, SVM walks the heap linearly. In order for this to work
+  // with Shenandoah, we have to first mark all the live objects in an auxiliary bitmap.
+  bool svm_prepare_heap_walk();
+  // After SVM is done with the heap walk it has to call this method in order to release
+  // the auxiliary bitmap.
+  void svm_finish_heap_walk();
+  // The auxiliary bitmap which is only valid between the two calls above.
+  HeapWord* svm_aux_bitmap_storage() const { return _aux_bitmap_region.start(); }
+#endif // SVM
   // Parallel heap iteration support
   ParallelObjectIteratorImpl* parallel_object_iterator(uint workers) override;
 

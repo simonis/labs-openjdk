@@ -47,6 +47,14 @@ void ConcurrentGCThread::run() {
   // Wait for initialization to complete
   wait_init_completed();
 
+#ifdef SVM
+  // Avoid enqueuing a VM operation (e.g. if running with -XX:ShenandoahGCHeuristics=aggressive)
+  // before SVM's VM operation thread has been started.
+  while (!Thread::is_VM_thread_started() && !should_terminate()) {
+    os::naked_short_sleep(1);
+  }
+#endif // SVM
+
   run_service();
 
   // Signal thread has terminated

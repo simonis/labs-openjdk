@@ -68,6 +68,11 @@ bool Thread::is_VM_thread() const {
   IsolateThread *isolate_thread = RawAccess<>::load_at(SVMIsolateData::_vm_operation_thread, SVMGlobalData::_offsets._vm_operation_thread._isolate_thread);
   return this == isolate_thread->java_thread();
 }
+
+bool Thread::is_VM_thread_started() {
+  IsolateThread *isolate_thread = RawAccess<MO_ACQUIRE>::load_at(SVMIsolateData::_vm_operation_thread, SVMGlobalData::_offsets._vm_operation_thread._isolate_thread);
+  return isolate_thread != nullptr;
+}
 #endif // SVM
 
 // ======= Thread ========

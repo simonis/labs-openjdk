@@ -126,6 +126,8 @@ extern "C" {
 
   EXPORT_FOR_SVM void svm_gc_dirty_all_references_of(stackChunkOop stackChunk);
 
+  EXPORT_FOR_SVM void svm_gc_prepare_stack_chunk_for_thaw(stackChunkOop stackChunk);
+
   EXPORT_FOR_SVM jlong svm_gc_millis_since_last_whole_heap_examined();
 
   EXPORT_FOR_SVM bool svm_gc_has_reference_pending_list();
@@ -139,6 +141,10 @@ extern "C" {
   EXPORT_FOR_SVM void svm_gc_wake_up_reference_pending_list_waiters();
 
   EXPORT_FOR_SVM void svm_gc_get_region_boundaries(ShenandoahRegionBoundaries *region_boundaries);
+
+  EXPORT_FOR_SVM bool svm_gc_prepare_heap_walk(ShenandoahRegionBoundaries *region_boundaries);
+
+  EXPORT_FOR_SVM void svm_gc_finish_heap_walk();
 
   EXPORT_FOR_SVM void svm_gc_register_object_fields(nmethod* nm);
 

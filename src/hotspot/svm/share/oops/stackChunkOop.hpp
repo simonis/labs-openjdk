@@ -43,6 +43,10 @@ public:
 
   void do_barriers();
 
+  // Applies load barriers to all references in the stack frames
+  // before they are copied back to the thread stack if required.
+  void do_load_barriers();
+
   void iterate_stack(OopClosure* closure);
 };
 

@@ -1879,6 +1879,13 @@ private:
     T o = RawAccess<>::oop_load(p);
     if (!CompressedOops::is_null(o)) {
       oop obj = CompressedOops::decode_not_null(o);
+#ifdef SVM
+      // The image heap and the metaspace are never marked. Their objects are walked separately and
+      // their references into the collected heap are roots (see ShenandoahOpenImageHeapRoots).
+      if (SVMImageHeap::is_image_heap_object(obj) || SVMMetaspace::is_in_address_space(obj)) {
+        return;
+      }
+#endif // SVM
       if (_heap->is_concurrent_weak_root_in_progress() && !_marking_context->is_marked(obj)) {
         // There may be dead oops in weak roots in concurrent root phase, do not touch them.
         return;
@@ -1956,7 +1963,19 @@ bool ShenandoahHeap::prepare_aux_bitmap_for_iteration() {
     return false;
   }
   // Reset bitmap
+#ifndef SVM
   _aux_bit_map.clear();
+#else
+  // The image heap and the metaspace at the start of the heap are never marked,
+  // so only clear the part of the bitmap that covers the collected heap.
+  size_t first = 0;
+  while (first < num_regions() && (get_region(first)->is_image_heap() || SVMMetaspace::is_in_address_space(get_region(first)->bottom()))) {
+    first++;
+  }
+  if (first < num_regions()) {
+    _aux_bit_map.clear_range_large(MemRegion(get_region(first)->bottom(), _heap_region.end()));
+  }
+#endif // !SVM
   return true;
 }
 
@@ -1976,6 +1995,29 @@ void ShenandoahHeap::reclaim_aux_bitmap_for_iteration() {
   }
 }
 
+#ifdef SVM
+bool ShenandoahHeap::svm_prepare_heap_walk() {
+  // Same traversal as object_iterate(), but only mark the reachable objects.
+  if (!prepare_aux_bitmap_for_iteration()) {
+    return false;
+  }
+
+  ShenandoahScanObjectStack oop_stack;
+  ObjectIterateScanRootClosure oops(&_aux_bit_map, &oop_stack);
+  scan_roots_for_iteration(&oop_stack, &oops);
+  while (!oop_stack.is_empty()) {
+    oop obj = oop_stack.pop();
+    assert(oopDesc::is_oop(obj), "must be a valid oop");
+    obj->oop_iterate(&oops);
+  }
+  return true;
+}
+
+void ShenandoahHeap::svm_finish_heap_walk() {
+  reclaim_aux_bitmap_for_iteration();
+}
+#endif // SVM
+
 // Closure for parallelly iterate objects
 class ShenandoahObjectIterateParScanClosure : public BasicOopIterateClosure {
 private:
@@ -1989,6 +2031,13 @@ private:
     T o = RawAccess<>::oop_load(p);
     if (!CompressedOops::is_null(o)) {
       oop obj = CompressedOops::decode_not_null(o);
+#ifdef SVM
+      // The image heap and the metaspace are never marked. Their objects are walked separately and
+      // their references into the collected heap are roots (see ShenandoahOpenImageHeapRoots).
+      if (SVMImageHeap::is_image_heap_object(obj) || SVMMetaspace::is_in_address_space(obj)) {
+        return;
+      }
+#endif // SVM
       if (_heap->is_concurrent_weak_root_in_progress() && !_marking_context->is_marked(obj)) {
         // There may be dead oops in weak roots in concurrent root phase, do not touch them.
         return;

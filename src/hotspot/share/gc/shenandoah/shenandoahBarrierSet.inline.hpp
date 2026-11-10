@@ -278,6 +278,8 @@ template <typename T>
 inline void ShenandoahBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_common(T* addr, oop value) {
   shenandoah_assert_marked_if(nullptr, value,
                               !CompressedOops::is_null(value) && ShenandoahHeap::heap()->is_evacuation_in_progress()
+                              // Image heap objects are always live and never marked on SVM.
+                              SVM_ONLY(&& !SVMImageHeap::is_image_heap_object(value))
                               && !(ShenandoahHeap::heap()->active_generation()->is_young()
                                    && ShenandoahHeap::heap()->heap_region_containing(value)->is_old()));
   shenandoah_assert_not_in_cset_if(addr, value, value != nullptr && !ShenandoahHeap::heap()->cancelled_gc());

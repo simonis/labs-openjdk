@@ -359,6 +359,7 @@ class Thread NOT_SVM(: public ThreadShadow) {
   // Testers
 #ifdef SVM
   bool is_VM_thread() const;
+  static bool is_VM_thread_started();
 #else
   virtual bool is_VM_thread()       const            { return false; }
 #endif

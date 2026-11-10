@@ -57,6 +57,7 @@
 #include "utilities/defaultStream.hpp"
 #include "utilities/vmError.hpp"
 
+
 /*
  * NOTE (chaeubl):  When SVM calls any of the exported methods below, it is essential that the correct kind of transition is used for the call. Otherwise,
  * we will end up with either deadlocks or wrong behavior.
@@ -313,6 +314,15 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
     // base is stable for the isolate's lifetime; the compiled CAS heal barrier uses it to skip the
     // heal stub for references that are not in the collection set. See svm_gc_load_reference_barrier_heal.
     shenandoah_init_state.cset_fast_test_address = (void*) ShenandoahHeap::in_cset_fast_test_addr();
+    // Layout of the auxiliary bitmap that svm_gc_prepare_heap_walk() fills with the reachable objects.
+    // It is reserved once with the heap but only committed during a heap walk. The bitmap covers the heap
+    // reservation, which starts after the null regions. Verify that SVM agrees about the covered heap area.
+    ShenandoahHeap* const sh = ShenandoahHeap::heap();
+    guarantee(sh->base() == (HeapWord*)(SVMIsolateData::_heap_base + SVMGlobalData::_null_regions_size),
+              "auxiliary bitmap must cover the heap from the end of the null regions: " PTR_FORMAT " != " PTR_FORMAT " + %zu",
+              p2i(sh->base()), p2i(SVMIsolateData::_heap_base), SVMGlobalData::_null_regions_size);
+    shenandoah_init_state.aux_bitmap_address = (void*) sh->svm_aux_bitmap_storage();
+    shenandoah_init_state.aux_bitmap_shift = LogHeapWordSize + LogMinObjAlignment;
     // The main thread attached (ShenandoahBarrierSet::on_thread_attach) before the collection-set
     // fast-test biased map existed, so its cached per-thread _cset_map is still null. Now that the
     // map is available, set it for the current (main) thread. Threads attaching later run
@@ -717,6 +727,19 @@ EXPORT_FOR_SVM void svm_gc_dirty_all_references_of(stackChunkOop stackChunk) {
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+// Called right before the frames of the given {@link StoredContinuation} are copied back to a
+// thread stack. GCs that need it (e.g., concurrently evacuating GCs) can apply load barriers to
+// all references in the frames, because references on thread stacks must be up-to-date. The
+// caller must remain uninterruptible until the frames are copied.
+EXPORT_FOR_SVM void svm_gc_prepare_stack_chunk_for_thaw(stackChunkOop stackChunk) {
+  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
+
+  if (Universe::heap()->requires_barriers(stackChunk)) {
+    stackChunk->do_load_barriers();
+  }
+}
+
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
 EXPORT_FOR_SVM jlong svm_gc_millis_since_last_whole_heap_examined() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   size_t n = Universe::heap()->millis_since_last_whole_heap_examined();
@@ -770,14 +793,7 @@ EXPORT_FOR_SVM void svm_gc_wake_up_reference_pending_list_waiters() {
   ml.notify_all();
 }
 
-// TO_NATIVE - Only called from the VM thread at a safepoint.
-EXPORT_FOR_SVM void svm_gc_get_region_boundaries(ShenandoahRegionBoundaries *region_boundaries) {
-  assert(Thread::current()->is_VM_thread(), "must be the VM thread");
-  assert(IsolateThread::current()->has_status_native_or_safepoint(), "unexpected thread state");
-
-  ShenandoahHeap *sh = ShenandoahHeap::heap();
-  sh->ensure_parsability(false);
-
+static void fill_region_boundaries(ShenandoahHeap* sh, ShenandoahRegionBoundaries *region_boundaries) {
   int regions = sh->num_regions();
   for (int i = 0; i < regions; i++) {
     ShenandoahHeapRegion *hr = sh->get_region(i);
@@ -793,7 +809,48 @@ EXPORT_FOR_SVM void svm_gc_get_region_boundaries(ShenandoahRegionBoundaries *reg
       boundaries.top = (u_char*)hr->top();
     }
   }
+}
 
+// TO_NATIVE - Only called from the VM thread at a safepoint.
+EXPORT_FOR_SVM void svm_gc_get_region_boundaries(ShenandoahRegionBoundaries *region_boundaries) {
+  assert(Thread::current()->is_VM_thread(), "must be the VM thread");
+  assert(IsolateThread::current()->has_status_native_or_safepoint(), "unexpected thread state");
+
+  ShenandoahHeap *sh = ShenandoahHeap::heap();
+  // SVM's heap walker scans each region linearly from bottom to top, so all regions must be parsable.
+  // Shenandoah's ensure_parsability() is a no-op (HotSpot's object_iterate() traverses the object
+  // graph instead of scanning linearly), so fill the unused parts of all TLABs, GCLABs and PLABs
+  // explicitly, like the verifier does (see ShenandoahHeap::prepare_for_verify()).
+  if (UseTLAB) {
+    sh->labs_make_parsable();
+  }
+  fill_region_boundaries(sh, region_boundaries);
+}
+
+// TO_NATIVE - Only called from the VM thread at a safepoint.
+EXPORT_FOR_SVM bool svm_gc_prepare_heap_walk(ShenandoahRegionBoundaries *region_boundaries) {
+  assert(Thread::current()->is_VM_thread(), "must be the VM thread");
+  assert(IsolateThread::current()->has_status_native_or_safepoint(), "unexpected thread state");
+
+  // A linear scan must not touch dead objects: their reference fields may point to reclaimed
+  // regions, and during a concurrent cycle (which this safepoint may interrupt) the headers of
+  // evacuated objects hold forwarding pointers. So, like object_iterate(), mark the reachable
+  // objects first. The walker then reads the auxiliary bitmap directly (see aux_bitmap_* in
+  // ShenandoahInitState).
+  ShenandoahHeap *sh = ShenandoahHeap::heap();
+  if (!sh->svm_prepare_heap_walk()) {
+    return false;
+  }
+  // The traversal may have evacuated objects, so compute the boundaries afterwards.
+  fill_region_boundaries(sh, region_boundaries);
+  return true;
+}
+
+// TO_NATIVE - Only called from the VM thread at a safepoint.
+EXPORT_FOR_SVM void svm_gc_finish_heap_walk() {
+  assert(Thread::current()->is_VM_thread(), "must be the VM thread");
+  assert(IsolateThread::current()->has_status_native_or_safepoint(), "unexpected thread state");
+  ShenandoahHeap::heap()->svm_finish_heap_walk();
 }
 
 // NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread.

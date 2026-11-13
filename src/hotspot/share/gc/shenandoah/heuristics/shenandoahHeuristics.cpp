@@ -102,8 +102,8 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
     ShenandoahHeapRegion* region = heap->get_region(i);
 
 #ifdef SVM
-    if (region->is_image_heap()) {
-      // We don't collect the image heap
+    if (region->is_image_heap_or_metaspace()) {
+      // We don't collect the image heap and the metaspace
       continue;
     }
 #endif // SVM

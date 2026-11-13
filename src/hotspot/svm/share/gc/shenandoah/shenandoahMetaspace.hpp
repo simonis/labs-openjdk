@@ -26,31 +26,77 @@
 #ifndef SVM_SHARE_GC_SHENANDOAH_SHENANDOAHMETASPACE_HPP
 #define SVM_SHARE_GC_SHENANDOAH_SHENANDOAHMETASPACE_HPP
 
+#include "oops/oop.hpp"
 #include "svmMetaspace.hpp"
 
 namespace svm_gc {
 
-// Minimal metaspace for Shenandoah.
+class InstanceKlass;
+class Klass;
+
+// Manages Java objects allocated in the Shenandoah metaspace regions (runtime-created DynamicHubs and
+// their metadata arrays, see the SubstrateVM Metaspace interface). Until class unloading is
+// supported, the metaspace follows the same model as the open image heap (and as G1Metaspace):
+//  - Objects are always live and are never marked, evacuated, compacted, or reclaimed. The regions
+//    are never part of a collection set, carry no generation affiliation, and are skipped by all
+//    region iterations that only apply to the collected heap (is_image_heap_or_metaspace()).
+//  - Their references into the collected heap are roots that are scanned, updated, and adjusted
+//    together with the open image heap (see ShenandoahOpenImageHeapRoots). Reference stores use the
+//    normal barriers.
+//  - Unlike java.lang.ref.Reference objects in the image heap, those in the metaspace are not
+//    expected (no SubstrateVM code allocates them there).
 //
-// Runtime class loading (and therefore an actually populated metaspace) is not supported for
-// Shenandoah yet: the Native Image side only registers a Metaspace when RuntimeClassLoading is
-// enabled, and in that case the reserved metaspace size that the collector receives is 0. This class
-// exists only to satisfy the shared CollectedHeap interface, which (unlike before the G1 metaspace
-// merge) requires every collector to register an SVMMetaspace. It reports a permanently empty
-// metaspace. If/when runtime class loading is brought to Shenandoah, this needs a real
-// implementation analogous to G1Metaspace.
+// Allocation and commitment:
+// The metaspace occupies the first regions of the heap reservation (followed by the image heap).
+// Objects are bump-allocated at run time under the Heap_lock, and allocation fails (returns
+// nullptr) when the fixed reservation is exhausted. Region memory is committed on demand.
+// Objects larger than a region are allocated in consecutive empty regions, which then become
+// humongous start/continuation regions.
+//
+// Concurrency invariants:
+// Allocations happen in VM state and therefore never overlap a safepoint, so the root scans in
+// GC pauses see stable region tops. An allocation initializes the object before publishing the new
+// top with a release store, so concurrent readers of the top (is_in_allocated_memory()) only see
+// initialized objects. Objects allocated after a root scan contain no references until Java code
+// stores them, and those stores go through the SATB and card barriers.
 class ShenandoahMetaspace : public SVMMetaspace {
+ public:
+  // Must match MetaspaceAllocationKind in ShenandoahAllocationSupport on the SubstrateVM side.
+  enum AllocationKind {
+    DynamicHubAllocation = 0,
+    ByteArrayAllocation = 1,
+    IntArrayAllocation = 2,
+    ObjectAllocation = 3,
+    AllocationKindCount = 4
+  };
+
  private:
+  static uint _current_region;
+  static uint _committed_regions;
   static size_t _used;
   static size_t _used_at_last_gc;
+  static size_t _allocation_counts[AllocationKindCount];
+  static size_t _allocation_sizes[AllocationKindCount];
+
+  static oop allocate(Klass* klass, size_t word_size, int array_length, AllocationKind allocation_kind);
+  static oop allocate_humongous(Klass* klass, size_t word_size, int array_length, AllocationKind allocation_kind);
+  static oop initialize_object(HeapWord* memory, Klass* klass, size_t word_size, int array_length);
+  static void record_allocation(size_t word_size, AllocationKind allocation_kind);
+  static void commit_regions(uint end_region);
 
  public:
   void initialize();
   void update_used_at_last_gc() override;
+
+  static oop allocate_instance(InstanceKlass* klass);
+  static oop allocate_array(Klass* klass, int length, AllocationKind allocation_kind);
+
   bool is_in_allocated_memory(const void* address) const override;
 
   static size_t used() { return _used; }
   static size_t used_at_last_gc() { return _used_at_last_gc; }
+  static size_t allocation_count(AllocationKind allocation_kind) { return _allocation_counts[allocation_kind]; }
+  static size_t allocation_size(AllocationKind allocation_kind) { return _allocation_sizes[allocation_kind]; }
 };
 
 } // namespace svm_gc

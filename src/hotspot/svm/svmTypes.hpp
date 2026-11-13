@@ -62,6 +62,7 @@ enum ShenandoahNIRegionTypeFlags : char {
   HumongousBits = StartsHumongousBit | ContinuesHumongousBit,
   ClosedImageHeapBit = 0b0100,
   OpenImageHeapBit = 0b1000,
+  MetaspaceBit = 0b10000,
 };
 
 enum ShenandoahNIRegionType : char {
@@ -71,7 +72,11 @@ enum ShenandoahNIRegionType : char {
 
   OpenImageHeap = ShenandoahNIRegionTypeFlags::OpenImageHeapBit,
   OpenImageHeapStartsHumongous = ShenandoahNIRegionTypeFlags::OpenImageHeapBit | ShenandoahNIRegionTypeFlags::StartsHumongousBit,
-  OpenImageHeapContinuesHumongous = ShenandoahNIRegionTypeFlags::OpenImageHeapBit | ShenandoahNIRegionTypeFlags::ContinuesHumongousBit
+  OpenImageHeapContinuesHumongous = ShenandoahNIRegionTypeFlags::OpenImageHeapBit | ShenandoahNIRegionTypeFlags::ContinuesHumongousBit,
+
+  Metaspace = ShenandoahNIRegionTypeFlags::MetaspaceBit,
+  MetaspaceStartsHumongous = ShenandoahNIRegionTypeFlags::MetaspaceBit | ShenandoahNIRegionTypeFlags::StartsHumongousBit,
+  MetaspaceContinuesHumongous = ShenandoahNIRegionTypeFlags::MetaspaceBit | ShenandoahNIRegionTypeFlags::ContinuesHumongousBit
 };
 
 } // namespace svm_gc

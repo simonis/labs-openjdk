@@ -107,6 +107,7 @@
 #endif
 #ifdef SVM
 #include "svmGlobalData.hpp"
+#include "svmHeapAddressSpace.hpp"
 #endif
 
 namespace svm_gc {
@@ -221,8 +222,13 @@ jint ShenandoahHeap::initialize() {
 #ifndef SVM
   ReservedHeapSpace heap_rs = Universe::reserve_heap(max_byte_size, heap_alignment);
 #else
+  // The metaspace regions come first, followed by the closed and the open image heap regions.
+  guarantee(is_aligned(SVMGlobalData::_metaspace_size, ShenandoahHeapRegion::region_size_bytes()), "metaspace must be region-aligned");
+  SVMGlobalData::_metaspace_regions = (int)(SVMGlobalData::_metaspace_size / ShenandoahHeapRegion::region_size_bytes());
+  int metaspace_regions = SVMGlobalData::_metaspace_regions;
   int image_heap_regions = SVMGlobalData::_closed_image_heap_regions + SVMGlobalData::_open_image_heap_regions;
-  size_t image_heap_size = image_heap_regions * ShenandoahHeapRegion::region_size_bytes();
+  // Size of the regions that are never collected (metaspace and image heap) at the start of the heap.
+  size_t image_heap_size = (metaspace_regions + image_heap_regions) * ShenandoahHeapRegion::region_size_bytes();
   ReservedHeapSpace heap_rs = ReservedHeapSpace(SVMIsolateData::_heap_base, max_byte_size + SVMGlobalData::_null_regions_size, SVMGlobalData::_heap_base_alignment, heap_page_size, SVMGlobalData::_null_regions_size);
   MemRegion heap_region_without_image_heap((HeapWord*)(heap_rs.base() + image_heap_size), (heap_rs.size() - image_heap_size) / HeapWordSize);
 #endif // !SVM
@@ -426,9 +432,15 @@ jint ShenandoahHeap::initialize() {
       ShenandoahHeapRegion* r = new (loc) ShenandoahHeapRegion(start, i, is_committed);
 #else
       ShenandoahHeapRegion* r;
-      if (i < image_heap_regions) {
-        HeapWord* top = start + (r->region_size_words() - (SVMIsolateData::_image_heap_region_free_spaces->int_at(i) / HeapWordSize));
-        r = new (loc) ShenandoahHeapRegion(start, i, top, SVMIsolateData::_image_heap_region_types->byte_at(i));
+      if (i < (size_t)metaspace_regions) {
+        // Metaspace regions start empty. ShenandoahMetaspace commits their memory when it allocates in them.
+        r = new (loc) ShenandoahHeapRegion(start, i, start, ShenandoahNIRegionType::Metaspace);
+        log_trace(gc)("Initializing region %d: (%s) [" PTR_FORMAT ", " PTR_FORMAT ", " PTR_FORMAT "]",
+                      (int)i, ShenandoahHeapRegion::region_state_to_string(r->state()), p2i(start), p2i(start), p2i(start + ShenandoahHeapRegion::region_size_words()));
+      } else if (i < (size_t)(metaspace_regions + image_heap_regions)) {
+        int image_heap_index = (int)i - metaspace_regions;
+        HeapWord* top = start + (r->region_size_words() - (SVMIsolateData::_image_heap_region_free_spaces->int_at(image_heap_index) / HeapWordSize));
+        r = new (loc) ShenandoahHeapRegion(start, i, top, SVMIsolateData::_image_heap_region_types->byte_at(image_heap_index));
         log_trace(gc)("Initializing region %d: (%s) [" PTR_FORMAT ", " PTR_FORMAT ", " PTR_FORMAT "]",
                       (int)i, ShenandoahHeapRegion::region_state_to_string(r->state()), p2i(start), p2i(top), p2i(start + ShenandoahHeapRegion::region_size_words()));
       } else {
@@ -1882,7 +1894,7 @@ private:
 #ifdef SVM
       // The image heap and the metaspace are never marked. Their objects are walked separately and
       // their references into the collected heap are roots (see ShenandoahOpenImageHeapRoots).
-      if (SVMImageHeap::is_image_heap_object(obj) || SVMMetaspace::is_in_address_space(obj)) {
+      if (SVMHeapAddressSpace::is_image_heap_or_metaspace_object(obj)) {
         return;
       }
 #endif // SVM
@@ -1969,7 +1981,7 @@ bool ShenandoahHeap::prepare_aux_bitmap_for_iteration() {
   // The image heap and the metaspace at the start of the heap are never marked,
   // so only clear the part of the bitmap that covers the collected heap.
   size_t first = 0;
-  while (first < num_regions() && (get_region(first)->is_image_heap() || SVMMetaspace::is_in_address_space(get_region(first)->bottom()))) {
+  while (first < num_regions() && get_region(first)->is_image_heap_or_metaspace()) {
     first++;
   }
   if (first < num_regions()) {
@@ -2034,7 +2046,7 @@ private:
 #ifdef SVM
       // The image heap and the metaspace are never marked. Their objects are walked separately and
       // their references into the collected heap are roots (see ShenandoahOpenImageHeapRoots).
-      if (SVMImageHeap::is_image_heap_object(obj) || SVMMetaspace::is_in_address_space(obj)) {
+      if (SVMHeapAddressSpace::is_image_heap_or_metaspace_object(obj)) {
         return;
       }
 #endif // SVM
@@ -2182,7 +2194,7 @@ void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure* blk) const
     ShenandoahHeapRegion* current = get_region(i);
 #ifdef SVM
     // Nothing to do in the image heap
-    if (!include_image_heap && current->is_image_heap()) continue;
+    if (!include_image_heap && current->is_image_heap_or_metaspace()) continue;
 #endif // SVM
     blk->heap_region_do(current);
   }
@@ -2227,7 +2239,7 @@ public:
         ShenandoahHeapRegion* current = _heap->get_region(i);
 #ifdef SVM
         // Nothing to do in the image heap
-        if (!_include_image_heap && current->is_image_heap()) continue;
+        if (!_include_image_heap && current->is_image_heap_or_metaspace()) continue;
 #endif // SVM
         _blk->heap_region_do(current);
       }

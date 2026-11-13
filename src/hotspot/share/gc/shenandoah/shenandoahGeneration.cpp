@@ -54,8 +54,8 @@ public:
   void heap_region_do(ShenandoahHeapRegion* region) override {
     assert(!_heap->is_uncommit_in_progress(), "Cannot uncommit bitmaps while resetting them.");
 #ifdef SVM
-    // Don't process bitmaps in the image heap
-    if (region->is_image_heap()) return;
+    // Don't process bitmaps in the image heap and the metaspace
+    if (region->is_image_heap_or_metaspace()) return;
 #endif // SVM
     if (PREPARE_FOR_CURRENT_CYCLE) {
       if (region->need_bitmap_reset() && _heap->is_bitmap_slice_committed(region)) {

@@ -287,9 +287,8 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   }
 
   CompressedOops::initialize();
-  // Register a (minimal, empty) metaspace so the shared CollectedHeap code that unconditionally
-  // queries SVMMetaspace::metaspace() has a valid instance. Runtime class loading is not supported
-  // for Shenandoah yet, so this metaspace is always empty. Must happen before Threads::create_vm,
+  // Register the metaspace (also when it is empty because runtime class loading is disabled), as the
+  // shared CollectedHeap code unconditionally queries SVMMetaspace::metaspace(). Must happen before Threads::create_vm,
   // which runs universe_post_init -> CollectedHeap::update_capacity_and_used_at_gc.
   static ShenandoahMetaspace shenandoah_metaspace;
   shenandoah_metaspace.initialize();
@@ -537,6 +536,25 @@ EXPORT_FOR_SVM oop svm_gc_allocate_array(ArrayKlass *k, int length) {
     }
   }
   return result;
+}
+
+// TO_VM - May be called by any Java thread. Uses oops. May block.
+EXPORT_FOR_SVM oop svm_gc_allocate_metaspace_instance(InstanceKlass *k) {
+  assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
+  return ShenandoahMetaspace::allocate_instance(k);
+}
+
+// TO_VM - May be called by any Java thread. Uses oops. May block.
+EXPORT_FOR_SVM oop svm_gc_allocate_metaspace_array(Klass *k, int length, int allocation_kind) {
+  assert(IsolateThread::current()->has_status_vm(), "unexpected thread state");
+  guarantee(allocation_kind >= ShenandoahMetaspace::DynamicHubAllocation && allocation_kind <= ShenandoahMetaspace::IntArrayAllocation, "invalid allocation kind");
+  return ShenandoahMetaspace::allocate_array(k, length, static_cast<ShenandoahMetaspace::AllocationKind>(allocation_kind));
+}
+
+// NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
+EXPORT_FOR_SVM bool svm_gc_is_in_allocated_metaspace(void *address) {
+  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
+  return SVMMetaspace::metaspace()->is_in_allocated_memory(address);
 }
 
 // TO_VM - May be called by any Java thread. Uses oops. May block. May cause a safepoint.
@@ -909,6 +927,19 @@ EXPORT_FOR_SVM const char* svm_gc_get_current_thread_name() {
 }
 
 // NO_TRANSITION - Only called when printing diagnostics. SVM threads may still be running concurrently, so this is racy by design.
+EXPORT_FOR_SVM void svm_gc_get_metaspace_statistics(MetaspaceStatistics *statistics) {
+  assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
+  statistics->dynamic_hub_count = ShenandoahMetaspace::allocation_count(ShenandoahMetaspace::DynamicHubAllocation);
+  statistics->dynamic_hub_size = ShenandoahMetaspace::allocation_size(ShenandoahMetaspace::DynamicHubAllocation);
+  statistics->byte_array_count = ShenandoahMetaspace::allocation_count(ShenandoahMetaspace::ByteArrayAllocation);
+  statistics->byte_array_size = ShenandoahMetaspace::allocation_size(ShenandoahMetaspace::ByteArrayAllocation);
+  statistics->int_array_count = ShenandoahMetaspace::allocation_count(ShenandoahMetaspace::IntArrayAllocation);
+  statistics->int_array_size = ShenandoahMetaspace::allocation_size(ShenandoahMetaspace::IntArrayAllocation);
+  statistics->object_count = ShenandoahMetaspace::allocation_count(ShenandoahMetaspace::ObjectAllocation);
+  statistics->object_size = ShenandoahMetaspace::allocation_size(ShenandoahMetaspace::ObjectAllocation);
+}
+
+// NO_TRANSITION - Only called when printing diagnostics. SVM threads may still be running concurrently, so this is racy by design.
 EXPORT_FOR_SVM bool svm_gc_get_region_info(int region_index, ShenandoahRegionInfo *region_info) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
 
@@ -945,7 +976,8 @@ EXPORT_FOR_SVM jlong svm_gc_get_free_memory() {
   size_t n;
   {
      MutexLocker x(Heap_lock);
-     n = ch->capacity() - ch->used() - SVMGlobalData::_image_heap_waste;
+     // The metaspace regions are part of the capacity, but not of the used memory.
+     n = ch->capacity() - ch->used() - SVMGlobalData::_image_heap_waste - SVMGlobalData::_metaspace_size;
   }
   return convert_size_t_to_jlong(n);
 }
@@ -954,16 +986,18 @@ EXPORT_FOR_SVM jlong svm_gc_get_free_memory() {
 EXPORT_FOR_SVM jlong svm_gc_get_total_memory() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   size_t n = Universe::heap()->capacity();
-  assert(n >= SVMGlobalData::_image_heap_size, "must be");
-  return convert_size_t_to_jlong(n - SVMGlobalData::_image_heap_size);
+  size_t image_heap_and_metaspace_size = SVMGlobalData::_image_heap_size + SVMGlobalData::_metaspace_size;
+  assert(n >= image_heap_and_metaspace_size, "must be");
+  return convert_size_t_to_jlong(n - image_heap_and_metaspace_size);
 }
 
 // NO_TRANSITION - Uninterruptible code that may be called by any Java thread.
 EXPORT_FOR_SVM jlong svm_gc_get_max_memory() {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   size_t n = Universe::heap()->max_capacity();
-  assert(n >= SVMGlobalData::_image_heap_size, "must be");
-  return convert_size_t_to_jlong(n - SVMGlobalData::_image_heap_size);
+  size_t image_heap_and_metaspace_size = SVMGlobalData::_image_heap_size + SVMGlobalData::_metaspace_size;
+  assert(n >= image_heap_and_metaspace_size, "must be");
+  return convert_size_t_to_jlong(n - image_heap_and_metaspace_size);
 }
 
 // NO_TRANSITION - Can be called by any thread.

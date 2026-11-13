@@ -331,9 +331,9 @@ bool ShenandoahReferenceProcessor::should_drop(oop reference, ReferenceType type
   }
 
 #ifdef SVM
-  // If the referent is in the image heap we can drop the reference because
+  // If the referent is in the image heap or the metaspace we can drop the reference because
   // the referent will never be garbage collected.
-  if (ShenandoahHeap::heap()->heap_region_containing(raw_referent)->is_image_heap()) {
+  if (ShenandoahHeap::heap()->heap_region_containing(raw_referent)->is_image_heap_or_metaspace()) {
     log_trace(gc, ref)("Referent: " PTR_FORMAT " (%s) is in the native image heap",
             p2i(raw_referent), reference_type_name(type));
     return true;
@@ -461,7 +461,7 @@ oop ShenandoahReferenceProcessor::drop(oop reference, ReferenceType type) {
 #ifdef ASSERT
   assert(raw_referent == nullptr || ShenandoahHeap::heap()->active_generation()->complete_marking_context()->is_marked(raw_referent)
          // Referents in the native image heap are always alive (i.e. they are never garbage collected).
-         SVM_ONLY(|| ShenandoahHeap::heap()->heap_region_containing(raw_referent)->is_image_heap()),
+         SVM_ONLY(|| ShenandoahHeap::heap()->heap_region_containing(raw_referent)->is_image_heap_or_metaspace()),
          "only drop references with alive referents");
 #endif
 

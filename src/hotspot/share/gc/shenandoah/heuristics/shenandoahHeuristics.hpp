@@ -122,7 +122,7 @@ protected:
 #ifdef ASSERT
       _union_tag = is_garbage;
 #ifdef SVM
-      assert(!region->is_image_heap(), "Shouldn't be");
+      assert(!region->is_image_heap_or_metaspace(), "Shouldn't be");
 #endif // SVM
 #endif
     }
@@ -133,7 +133,7 @@ protected:
 #ifdef ASSERT
       _union_tag = is_live_data;
 #ifdef SVM
-      assert(!region->is_image_heap(), "Shouldn't be");
+      assert(!region->is_image_heap_or_metaspace(), "Shouldn't be");
 #endif // SVM
 #endif
     }

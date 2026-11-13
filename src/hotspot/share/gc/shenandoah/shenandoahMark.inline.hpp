@@ -47,6 +47,9 @@
 #include "runtime/prefetch.inline.hpp"
 #include "utilities/devirtualizer.inline.hpp"
 #include "utilities/powerOfTwo.hpp"
+#ifdef SVM
+#include "svmHeapAddressSpace.hpp"
+#endif // SVM
 
 namespace svm_gc {
 
@@ -302,9 +305,9 @@ inline void ShenandoahMark::mark_through_ref(T *p, ShenandoahObjToScanQueue* q, 
     oop obj = CompressedOops::decode_not_null(o);
 
 #ifdef SVM
-    // We don't mark in the image heap: its objects are always live, are never moved, and their
-    // regions carry no generation affiliation.
-    if (SVMImageHeap::is_image_heap_object(obj)) return;
+    // We don't mark in the image heap and the metaspace: their objects are always live, are never
+    // moved, and their regions carry no generation affiliation.
+    if (SVMHeapAddressSpace::is_image_heap_or_metaspace_object(obj)) return;
 #endif // SVM
 
     ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::heap();
@@ -352,8 +355,8 @@ inline void ShenandoahMark::mark_non_generational_ref(T* p, ShenandoahObjToScanQ
     oop obj = CompressedOops::decode_not_null(o);
 
 #ifdef SVM
-  // We don't mark in the image heap.
-  if (SVMImageHeap::is_image_heap_object(obj)) return;
+  // We don't mark in the image heap and the metaspace.
+  if (SVMHeapAddressSpace::is_image_heap_or_metaspace_object(obj)) return;
 #endif
 
     shenandoah_assert_not_forwarded(p, obj);

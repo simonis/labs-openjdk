@@ -95,8 +95,8 @@ HeapWord* ShenandoahMarkingContext::top_bitmap(ShenandoahHeapRegion* r) {
 
 void ShenandoahMarkingContext::clear_bitmap(ShenandoahHeapRegion* r) {
 #ifdef SVM
-  // Don't process bitmaps in the image heap
-  if (r->is_image_heap()) return;
+  // Don't process bitmaps in the image heap and the metaspace
+  if (r->is_image_heap_or_metaspace()) return;
 #endif // SVM
   HeapWord* bottom = r->bottom();
   HeapWord* top_bitmap = _top_bitmaps[r->index()];

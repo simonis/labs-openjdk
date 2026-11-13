@@ -122,6 +122,16 @@ ShenandoahHeapRegion::ShenandoahHeapRegion(HeapWord* start, size_t index, HeapWo
          "invalid space boundaries");
   _recycling.unset();
 }
+
+void ShenandoahHeapRegion::make_metaspace_humongous_start() {
+  assert(state() == _metaspace && bottom() == top(), "must be an empty regular metaspace region");
+  set_state(_metaspace_humongous_start);
+}
+
+void ShenandoahHeapRegion::make_metaspace_humongous_cont() {
+  assert(state() == _metaspace && bottom() == top(), "must be an empty regular metaspace region");
+  set_state(_metaspace_humongous_cont);
+}
 #endif // SVM
 
 void ShenandoahHeapRegion::report_illegal_transition(const char *method) {
@@ -472,6 +482,15 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
       break;
     case _open_image_heap_humongous_cont:
       st->print("|OIC");
+      break;
+    case _metaspace:
+      st->print("|M  ");
+      break;
+    case _metaspace_humongous_start:
+      st->print("|MH ");
+      break;
+    case _metaspace_humongous_cont:
+      st->print("|MC ");
       break;
 #endif // SVM
     default:

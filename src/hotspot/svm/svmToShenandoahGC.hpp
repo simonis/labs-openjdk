@@ -102,6 +102,12 @@ extern "C" {
 
   EXPORT_FOR_SVM oop svm_gc_allocate_array(ArrayKlass *k, int length);
 
+  EXPORT_FOR_SVM oop svm_gc_allocate_metaspace_instance(InstanceKlass *k);
+
+  EXPORT_FOR_SVM oop svm_gc_allocate_metaspace_array(Klass *k, int length, int allocation_kind);
+
+  EXPORT_FOR_SVM bool svm_gc_is_in_allocated_metaspace(void *address);
+
   EXPORT_FOR_SVM oop svm_gc_allocate_stack_chunk(InstanceStackChunkKlass *k, int length);
 
   EXPORT_FOR_SVM oop svm_gc_allocate_pod(InstancePodKlass *k, int length);
@@ -157,6 +163,8 @@ extern "C" {
   EXPORT_FOR_SVM void svm_gc_get_internal_state(ShenandoahInternalState *gc_internal_data);
 
   EXPORT_FOR_SVM const char* svm_gc_get_current_thread_name();
+
+  EXPORT_FOR_SVM void svm_gc_get_metaspace_statistics(MetaspaceStatistics *statistics);
 
   EXPORT_FOR_SVM bool svm_gc_get_region_info(int region_index, ShenandoahRegionInfo *region_info);
 

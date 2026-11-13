@@ -46,6 +46,9 @@
 #include "runtime/orderAccess.hpp"
 #include "runtime/threads.hpp"
 #include "utilities/align.hpp"
+#ifdef SVM
+#include "svmHeapAddressSpace.hpp"
+#endif // SVM
 
 namespace svm_gc {
 
@@ -126,7 +129,7 @@ private:
       if (is_instance_ref_klass(ShenandoahForwarding::klass(obj))) {
         obj = ShenandoahForwarding::get_forwardee(obj);
       }
-      if (in_generation(obj) && SVM_ONLY(!SVMImageHeap::is_image_heap_object(obj) &&)_map->par_mark(obj)) {
+      if (in_generation(obj) && SVM_ONLY(!SVMHeapAddressSpace::is_image_heap_or_metaspace_object(obj) &&)_map->par_mark(obj)) {
         verify_oop_at(p, obj);
         _stack->push(ShenandoahVerifierTask(obj));
       }
@@ -399,8 +402,8 @@ public:
 
   void heap_region_do(ShenandoahHeapRegion* r) override {
 #ifdef SVM
-    // Do not account fur used space in image heap because it confuses the ShenandoahVerifier
-    if (!r->is_image_heap()) {
+    // Do not account fur used space in image heap and metaspace because it confuses the ShenandoahVerifier
+    if (!r->is_image_heap_or_metaspace()) {
 #endif // SVM
     _used += r->used();
 #ifdef SVM
@@ -714,6 +717,13 @@ public:
         if (!in_generation(r)) {
           continue;
         }
+#ifdef SVM
+        // Image heap and metaspace objects are never marked (their references into the collected
+        // heap are roots). The verification bitmap does not even cover these regions.
+        if (r->is_image_heap_or_metaspace()) {
+          continue;
+        }
+#endif // SVM
 
         if (!r->is_humongous() && !r->is_trash()) {
           work_regular(r, stack, cl);
@@ -1277,7 +1287,7 @@ private:
       // Image heap objects are always live, are never marked, never belong to a collection set
       // are never forwarded, and their regions carry no generation affiliation so none of the
       // checks below apply to them.
-      if (SVMImageHeap::is_image_heap_object(obj)) {
+      if (SVMHeapAddressSpace::is_image_heap_or_metaspace_object(obj)) {
         return;
       }
 #endif // SVM

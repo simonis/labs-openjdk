@@ -91,13 +91,19 @@ ShenandoahThreadRoots::~ShenandoahThreadRoots() {
 }
 
 #ifdef SVM
+// Also scans the metaspace regions, which come before the image heap regions and are treated like
+// the open image heap (see ShenandoahMetaspace).
+static int open_image_heap_and_metaspace_regions() {
+  return SVMGlobalData::_metaspace_regions + SVMGlobalData::_open_image_heap_regions;
+}
+
 ShenandoahOpenImageHeapRoots::ShenandoahOpenImageHeapRoots(ShenandoahPhaseTimings::Phase phase, uint n_workers) :
-  _semaphore(MIN(SVMGlobalData::_open_image_heap_regions, n_workers)),
+  _semaphore(MIN(open_image_heap_and_metaspace_regions(), n_workers)),
   _phase(phase),
 #ifdef ASSERT
   _processed_regions(0),
 #endif
-  _max_regions_per_thread((SVMGlobalData::_open_image_heap_regions + (n_workers - 1)) / n_workers) {
+  _max_regions_per_thread((open_image_heap_and_metaspace_regions() + (n_workers - 1)) / n_workers) {
 }
 
 void ShenandoahOpenImageHeapRoots::oops_do(OopClosure* oops_cl, uint worker_id) {
@@ -107,9 +113,9 @@ void ShenandoahOpenImageHeapRoots::oops_do(OopClosure* oops_cl, uint worker_id) 
     ShenandoahHeapRegion* r;
     int i = _max_regions_per_thread;
     while (i > 0 && (r = _regions.next()) != nullptr) {
-      if (r->is_open_image_heap()) {
+      if (r->is_open_image_heap_or_metaspace()) {
         if (!r->is_humongous_continuation()) {
-          HeapWord* t = r->top();
+          HeapWord* t = r->top_acquire();
           HeapWord* obj_addr = r->bottom();
           while (obj_addr < t) {
             oop obj = cast_to_oop(obj_addr);
@@ -121,8 +127,8 @@ void ShenandoahOpenImageHeapRoots::oops_do(OopClosure* oops_cl, uint worker_id) 
         Atomic::inc(&_processed_regions);
 #endif
       } else {
-        if (!r->is_image_heap()) {
-          // All the image heap regions are at the beginning of the heap, so we can stop here.
+        if (!r->is_image_heap_or_metaspace()) {
+          // All the metaspace and image heap regions are at the beginning of the heap, so we can stop here.
           break;
         }
       }
@@ -132,7 +138,7 @@ void ShenandoahOpenImageHeapRoots::oops_do(OopClosure* oops_cl, uint worker_id) 
 
 ShenandoahOpenImageHeapRoots::~ShenandoahOpenImageHeapRoots() {
   assert(_semaphore.value == 0, "semaphore should be zero");
-  assert(_processed_regions == SVMGlobalData::_open_image_heap_regions, "all regions should have been processed");
+  assert(_processed_regions == open_image_heap_and_metaspace_regions(), "all regions should have been processed");
 }
 #endif // SVM
 

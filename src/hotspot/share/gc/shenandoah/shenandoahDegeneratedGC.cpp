@@ -216,6 +216,12 @@ void ShenandoahDegenGC::op_degenerated() {
       }
       assert(!heap->cancelled_gc(), "STW mark can not OOM");
 
+#ifdef SVM
+      // Free the runtime-compiled code that marking decided to unload, before any object is
+      // evacuated. If the concurrent cycle already finished marking, this does nothing.
+      heap->svm_clean_runtime_code_cache();
+#endif // SVM
+
       /* Degen select Collection Set. etc. */
       op_prepare_evacuation();
 

@@ -44,6 +44,10 @@ enum StringDedupMode {
 
 class ShenandoahMarkingContext;
 class ShenandoahReferenceProcessor;
+#ifdef SVM
+class ShenandoahSVMCodeCacheRoots;
+class ShenandoahSVMRegionCodeRoots;
+#endif // SVM
 
 // Base class for mark
 // Mark class does not maintain states. Instead, mark states are
@@ -116,6 +120,24 @@ protected:
 
   void mark_loop(uint worker_id, TaskTerminator* terminator, ShenandoahReferenceProcessor *rp,
                  ShenandoahGenerationType generation, bool cancellable, StringDedupMode dedup_mode, StringDedup::Requests* const req);
+
+#ifdef SVM
+  // Marks through the oops of the runtime-compiled code (nmethods). Must be called after all other
+  // marking is complete.
+  //  - Young generation: like a G1 young collection, nmethods are not unloaded, and only the nmethods
+  //    that reference young objects (the code roots of the young regions) are roots.
+  //  - Otherwise: like the G1 remark pause and the G1 full GC, all nmethods are visited and it is
+  //    decided which nmethods are unloaded, based on the liveness of the nmethod tethers and weakly
+  //    referenced objects. With 'remark', all oops of the nmethods that are unloaded are marked as
+  //    well, otherwise only their object fields (which are needed for unloading them).
+  void svm_mark_code_cache(bool remark);
+
+public:
+  template <ShenandoahGenerationType GENERATION>
+  void svm_mark_code_cache_work(uint worker_id, ShenandoahSVMCodeCacheRoots* all_code_roots,
+                                ShenandoahSVMRegionCodeRoots* young_code_roots,
+                                TaskTerminator* terminator, bool remark);
+#endif // SVM
 };
 
 } // namespace svm_gc

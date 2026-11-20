@@ -33,6 +33,9 @@
 #include "gc/shenandoah/shenandoahSharedVariables.hpp"
 #include "gc/shenandoah/shenandoahUtils.hpp"
 #include "memory/iterator.hpp"
+#ifdef SVM
+#include "gc/shared/strongRootsScope.hpp"
+#endif // SVM
 
 namespace svm_gc {
 
@@ -119,6 +122,86 @@ public:
   ~ShenandoahOpenImageHeapRoots();
 
   void oops_do(OopClosure* oops_cl, uint worker_id);
+};
+
+// All nmethods (runtime-compiled code) of the SVM code cache. Unlike HotSpot's Shenandoah, which
+// tracks nmethods in its own table and processes them concurrently with nmethod entry barriers,
+// the SVM nmethods are only processed at safepoints (see svm/share/code/nmethod.hpp). Like in G1,
+// all nmethods are only visited when it is decided which nmethods are unloaded (see
+// ShenandoahMark::svm_mark_code_cache()), during a full GC, and for heap iteration. Evacuation and
+// reference updating only visit the code roots of the collection set (see ShenandoahSVMRegionCodeRoots).
+// Parallel workers claim chunks of the code info table, so that every nmethod is processed exactly once.
+class ShenandoahSVMCodeCacheRoots {
+private:
+  static const int              _chunk_size = 16;
+  ShenandoahPhaseTimings::Phase _phase;
+  typeArrayOop const            _table;
+  const int                     _length;
+  volatile int                  _claimed;
+
+public:
+  ShenandoahSVMCodeCacheRoots(ShenandoahPhaseTimings::Phase phase);
+
+  // Processes the claimed nmethods and records the time in the CodeCacheRoots worker timings of the phase.
+  void nmethods_do(NMethodClosure* nmethod_cl, uint worker_id);
+  // Same, without recording worker timings.
+  void nmethods_do(NMethodClosure* nmethod_cl);
+};
+
+// The code roots of a subset of the heap regions, i.e., the nmethods that reference objects in these
+// regions (see ShenandoahHeapRegion::add_code_root()). NOTE: similar to how G1 scans the code roots
+// of the collection set regions during evacuation. Parallel workers claim the regions, and every
+// nmethod is only processed once (it is claimed with nmethod::oops_do_try_claim()), even if it is a
+// code root of several of the regions.
+class ShenandoahSVMRegionCodeRoots {
+public:
+  enum Regions {
+    COLLECTION_SET,  // the nmethods that may reference objects that are evacuated
+    YOUNG            // the nmethods that are roots for marking the young generation
+  };
+
+private:
+  ShenandoahPhaseTimings::Phase _phase;
+  const Regions                 _regions;
+  NMethodMarkScope              _nmethod_mark_scope;
+  ShenandoahRegionIterator      _iterator;
+
+public:
+  ShenandoahSVMRegionCodeRoots(ShenandoahPhaseTimings::Phase phase, Regions regions);
+
+  // Processes the nmethods of the claimed regions and records the time in the CodeCacheRoots worker
+  // timings of the phase.
+  void nmethods_do(NMethodClosure* nmethod_cl, uint worker_id);
+  // Same, without recording worker timings.
+  void nmethods_do(NMethodClosure* nmethod_cl);
+};
+
+// Applies an oop closure to the oops of nmethods that are code roots of the collection set and
+// registers the nmethods with the regions that contain the (possibly evacuated) objects afterwards.
+// NOTE: similar to G1NMethodClosure::HeapRegionGatheringOopClosure.
+class ShenandoahSVMUpdateCodeRootsClosure : public NMethodClosure {
+private:
+  class GatheringOopClosure : public OopClosure {
+  private:
+    ShenandoahHeap* const _heap;
+    OopClosure* const     _work;
+    nmethod*              _nm;
+
+    template <class T>
+    void do_oop_work(T* p);
+
+  public:
+    GatheringOopClosure(OopClosure* work) : _heap(ShenandoahHeap::heap()), _work(work), _nm(nullptr) {}
+    void set_nm(nmethod* nm) { _nm = nm; }
+    void do_oop(oop* p) override;
+    void do_oop(narrowOop* p) override;
+  };
+
+  GatheringOopClosure _oc;
+
+public:
+  explicit ShenandoahSVMUpdateCodeRootsClosure(OopClosure* work) : _oc(work) {}
+  void do_nmethod(nmethod* nm) override;
 };
 #endif // SVM
 
@@ -223,6 +306,7 @@ private:
   ShenandoahCodeCacheRoots                                 _code_roots;
 #else
   ShenandoahOpenImageHeapRoots                             _open_image_heap_roots;
+  ShenandoahSVMCodeCacheRoots                              _code_cache_roots;
 #endif // !SVM
 
 public:
@@ -242,6 +326,7 @@ private:
   ShenandoahCodeCacheRoots                                  _code_roots;
 #else
   ShenandoahOpenImageHeapRoots                              _open_image_heap_roots;
+  ShenandoahSVMRegionCodeRoots                              _code_roots;
 #endif // !SVM
 
 public:
@@ -262,6 +347,7 @@ private:
   ShenandoahCodeCacheRoots                                  _code_roots;
 #else
   ShenandoahOpenImageHeapRoots                              _open_image_heap_roots;
+  ShenandoahSVMCodeCacheRoots                               _code_cache_roots;
 #endif // !SVM
 
 public:

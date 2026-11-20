@@ -229,6 +229,12 @@ void ShenandoahFullGC::do_it(GCCause::Cause gc_cause) {
 
   phase1_mark_heap();
 
+#ifdef SVM
+  // The code roots become stale when the objects are compacted, and regions are recycled during
+  // compaction, so clear them now and rebuild them at the end (see rebuild_code_roots()).
+  heap->clear_code_roots();
+#endif // SVM
+
   // Once marking is done, which may have fixed up forwarded objects, we can drop it.
   // Coming out of Full GC, we would not have any forwarded objects.
   // This also prevents resolves with fwdptr from kicking in while adjusting pointers in phase3.
@@ -282,6 +288,16 @@ void ShenandoahFullGC::do_it(GCCause::Cause gc_cause) {
 
   heap->set_full_gc_move_in_progress(false);
   heap->set_full_gc_in_progress(false);
+
+#ifdef SVM
+  // The objects that are referenced from nmethods were moved, so recompute the code roots (see
+  // G1CollectedHeap::prepare_for_mutator_after_full_collection()).
+  heap->rebuild_code_roots();
+  // Free the runtime-compiled code that marking decided to unload. This is done at the end, like
+  // in G1FullCollector::complete_collection(), when all references (including the object fields of
+  // the unloaded nmethods, see ShenandoahRootAdjuster) point to the compacted objects.
+  heap->svm_clean_runtime_code_cache();
+#endif // SVM
 
   if (ShenandoahVerify) {
     heap->verifier()->verify_after_fullgc();

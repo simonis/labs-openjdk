@@ -76,17 +76,44 @@ public:
   }
 };
 
+#ifdef SVM
+// NOTE: similar to MarkNMethodTether in g1ConcurrentMark.cpp
+class ShenandoahMarkNMethodTetherClosure : public NMethodClosure {
+private:
+  OopClosure* const _cl;
+
+public:
+  explicit ShenandoahMarkNMethodTetherClosure(OopClosure* cl) : _cl(cl) {}
+
+  void do_nmethod(nmethod* nm) override {
+    _cl->do_oop(nm->tether_addr());
+  }
+};
+#endif // SVM
+
 class ShenandoahSATBAndRemarkThreadsClosure : public ThreadClosure {
 private:
   SATBMarkQueueSet& _satb_qset;
+#ifdef SVM
+  NMethodClosure* const _mark_tether_cl;
+#endif // SVM
 
 public:
-  explicit ShenandoahSATBAndRemarkThreadsClosure(SATBMarkQueueSet& satb_qset) :
-    _satb_qset(satb_qset) {}
+  explicit ShenandoahSATBAndRemarkThreadsClosure(SATBMarkQueueSet& satb_qset SVM_ONLY(COMMA NMethodClosure* mark_tether_cl)) :
+    _satb_qset(satb_qset) SVM_ONLY(COMMA _mark_tether_cl(mark_tether_cl)) {}
 
   void do_thread(Thread* thread) override {
     // Transfer any partial buffer to the qset for completed buffer processing.
     _satb_qset.flush_queue(ShenandoahThreadLocalData::satb_mark_queue(thread));
+#ifdef SVM
+    if (thread->is_Java_thread()) {
+      // Code that is on the stack must not be unloaded. For nmethods that are currently on the stack,
+      // it is sufficient to mark the tether. Without this, the SATB marking would only know the
+      // nmethods that were on the stack at the start of marking. All other nmethod oops are marked
+      // afterwards (see ShenandoahMark::svm_mark_code_cache()).
+      JavaThread::cast(thread)->nmethods_do(_mark_tether_cl);
+    }
+#endif // SVM
   }
 };
 
@@ -120,7 +147,11 @@ public:
       while (satb_mq_set.apply_closure_to_completed_buffer(&cl)) {}
       assert(!heap->has_forwarded_objects(), "Not expected");
 
-      ShenandoahSATBAndRemarkThreadsClosure tc(satb_mq_set);
+#ifdef SVM
+      ShenandoahMarkRefsClosure<GENERATION> mark_cl(q, rp, old_q);
+      ShenandoahMarkNMethodTetherClosure mark_tether_cl(&mark_cl);
+#endif // SVM
+      ShenandoahSATBAndRemarkThreadsClosure tc(satb_mq_set SVM_ONLY(COMMA &mark_tether_cl));
       Threads::possibly_parallel_threads_do(true /* is_par */, &tc);
     }
     _cm->mark_loop(worker_id, _terminator, rp, GENERATION, false /*not cancellable*/,
@@ -140,15 +171,23 @@ private:
   // The STS joiner is only required when this task runs concurrently. On SVM the
   // task instead runs during the init mark safepoint, where joining the
   // suspendible thread set is neither needed nor allowed (it would deadlock).
-  NOT_SVM(SuspendibleThreadSetJoiner  _sts_joiner;)
-  NOT_SVM(ShenandoahConcurrentRootScanner     _root_scanner;)
+#ifndef SVM
+  SuspendibleThreadSetJoiner          _sts_joiner;
+  ShenandoahConcurrentRootScanner     _root_scanner;
+#else
+  // The STW root scanner claims the nmethods on the thread stacks when it marks their tethers (see
+  // MarkingNMethodClosure). The scope releases these claims when the task is destroyed, i.e. after
+  // WorkerThreads::run_task() returned and all workers finished. Without it, the nmethods would stay
+  // claimed and the next scope (e.g. the StrongRootsScope of the final mark) would find them.
+  NMethodMarkScope                    _nmethod_mark_scope;
   // On SVM the thread stack frames cannot be walked concurrently because the SVM stack walker
   // (NativeGCStackWalker.walkStack, reached via _fetch_thread_stack_frames) walks EVERY thread's stack
   // from the GC/VM thread, which requires the other threads to be stopped, i.e. at a global safepoint.
   // True concurrent thread-root scanning would need a per-thread handshake so each thread walks its OWN
   // stack, plus a stack-watermark load barrier for consistency - neither of which SVM currently has.
   // So this task is instead run during the init mark safepoint using the STW root scanner.
-  SVM_ONLY(ShenandoahSTWRootScanner   _root_scanner;)
+  ShenandoahSTWRootScanner            _root_scanner;
+#endif // !SVM
   ShenandoahObjToScanQueueSet* const  _queue_set;
   ShenandoahObjToScanQueueSet* const  _old_queue_set;
   ShenandoahReferenceProcessor* const _rp;
@@ -292,6 +331,13 @@ void ShenandoahConcurrentMark::finish_mark() {
   assert(Thread::current()->is_VM_thread(), "Must by VM Thread");
   finish_mark_work();
   assert(task_queues()->is_empty(), "Should be empty");
+#ifdef SVM
+  // Now that all other marking is complete, mark through the runtime-compiled code. This has to
+  // treat all nmethod oops as live, also the ones of the nmethods that are unloaded, because of
+  // the SATB marking (see svm/share/code/nmethod.hpp). This is done outside of the
+  // StrongRootsScope of finish_mark_work(), because it claims nmethods in its own scope.
+  svm_mark_code_cache(true /* remark */);
+#endif // SVM
   TASKQUEUE_STATS_ONLY(task_queues()->print_and_reset_taskqueue_stats(""));
 
   _generation->set_concurrent_mark_in_progress(false);
@@ -315,6 +361,10 @@ void ShenandoahConcurrentMark::finish_mark_work() {
 
   StrongRootsScope scope(nworkers);
   TaskTerminator terminator(nworkers, task_queues());
+#ifdef SVM
+  // The final marking task marks the tethers of the nmethods on the stack.
+  CodeInfosPerThread* code_infos = Threads::set_java_code_infos();
+#endif // SVM
 
   switch (_generation->type()) {
     case YOUNG:{
@@ -341,6 +391,9 @@ void ShenandoahConcurrentMark::finish_mark_work() {
       ShouldNotReachHere();
   }
 
+#ifdef SVM
+  Threads::free_java_code_infos(code_infos);
+#endif // SVM
 
   assert(task_queues()->is_empty(), "Should be empty");
 }

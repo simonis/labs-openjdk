@@ -47,6 +47,7 @@
 #include "runtime/threads.hpp"
 #include "utilities/align.hpp"
 #ifdef SVM
+#include "code/codeCache.hpp"
 #include "svmHeapAddressSpace.hpp"
 #endif // SVM
 
@@ -828,6 +829,55 @@ public:
   }
 };
 
+#ifdef SVM
+// Verifies that every nmethod is a code root of all regions that contain objects it references
+// (see ShenandoahHeapRegion::add_code_root()). NOTE: similar to G1VerifyCodeRootOopClosure.
+class ShenandoahVerifyCodeRootsClosure : public NMethodClosure {
+private:
+  class VerifyOopClosure : public OopClosure {
+  private:
+    ShenandoahHeap* const _heap;
+    const char* const     _label;
+    nmethod*              _nm;
+
+    template <class T>
+    void do_oop_work(T* p) {
+      T o = RawAccess<>::oop_load(p);
+      if (!CompressedOops::is_null(o)) {
+        oop obj = CompressedOops::decode_raw_not_null(o);
+        ShenandoahHeapRegion* r = _heap->heap_region_containing(obj);
+        if (!r->is_image_heap_or_metaspace() && !r->code_roots_contains(_nm)) {
+          ResourceMark rm;
+          stringStream ss;
+          r->print_on(&ss);
+          fatal("%s: nmethod " PTR_FORMAT " references object " PTR_FORMAT " (at " PTR_FORMAT ") but is not a code root of its region: %s",
+                _label, p2i(_nm), p2i(obj), p2i(p), ss.freeze());
+        }
+      }
+    }
+
+  public:
+    VerifyOopClosure(const char* label) : _heap(ShenandoahHeap::heap()), _label(label), _nm(nullptr) {}
+    void set_nm(nmethod* nm) { _nm = nm; }
+    void do_oop(oop* p) override       { do_oop_work(p); }
+    void do_oop(narrowOop* p) override { do_oop_work(p); }
+  };
+
+  VerifyOopClosure _oop_cl;
+
+public:
+  explicit ShenandoahVerifyCodeRootsClosure(const char* label) : _oop_cl(label) {}
+
+  void do_nmethod(nmethod* nm) override {
+    if (nm->will_be_freed()) {
+      return;
+    }
+    _oop_cl.set_nm(nm);
+    nm->oops_do(&_oop_cl);
+  }
+};
+#endif // SVM
+
 void ShenandoahVerifier::verify_at_safepoint(const char* label,
                                              VerifyRememberedSet remembered,
                                              VerifyForwarded forwarded,
@@ -845,6 +895,11 @@ void ShenandoahVerifier::verify_at_safepoint(const char* label,
 #ifdef SVM
   StackFramesPerThread* stack_frames = Threads::set_java_stack_frames();
   CodeInfosPerThread* code_infos = Threads::set_java_code_infos();
+
+  {
+    ShenandoahVerifyCodeRootsClosure code_roots_cl(label);
+    CodeCache::nmethods_do(&code_roots_cl);
+  }
 #endif // SVM
 
 

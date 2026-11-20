@@ -871,36 +871,40 @@ EXPORT_FOR_SVM void svm_gc_finish_heap_walk() {
   ShenandoahHeap::heap()->svm_finish_heap_walk();
 }
 
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread.
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the StrongCodeRoots_lock temporarily.
 EXPORT_FOR_SVM void svm_gc_register_object_fields(nmethod* nm) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   assert(nm->state() == nmethod::state_code_constants_live, "must be");
 
-  Unimplemented();
+  MutexLocker ml(StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
+  ShenandoahHeap::heap()->register_object_fields(nm);
 }
 
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread.
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the StrongCodeRoots_lock temporarily.
 EXPORT_FOR_SVM void svm_gc_register_code_constants(nmethod* nm) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   assert(nm->state() == nmethod::state_code_constants_live, "must be");
 
-  Unimplemented();
+  MutexLocker ml(StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
+  ShenandoahHeap::heap()->register_code_constants(nm);
 }
 
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread.
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the StrongCodeRoots_lock temporarily.
 EXPORT_FOR_SVM void svm_gc_register_frame_metadata(nmethod* nm) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   assert(nm->state() == nmethod::state_code_constants_live, "must be");
 
-  Unimplemented();
+  MutexLocker ml(StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
+  ShenandoahHeap::heap()->register_frame_metadata(nm);
 }
 
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread.
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the StrongCodeRoots_lock temporarily.
 EXPORT_FOR_SVM void svm_gc_register_deopt_metadata(nmethod* nm) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   assert(nm->state() == nmethod::state_code_constants_live, "must be");
 
-  Unimplemented();
+  MutexLocker ml(StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
+  ShenandoahHeap::heap()->register_deopt_metadata(nm);
 }
 
 // NO_TRANSITION - Only called when printing diagnostics.

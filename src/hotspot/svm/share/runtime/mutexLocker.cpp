@@ -49,7 +49,7 @@
 namespace svm_gc {
 
 Monitor* Heap_lock                    = nullptr;
-Monitor* G1StrongCodeRoots_lock       = nullptr;
+Monitor* StrongCodeRoots_lock         = nullptr;
 Mutex*   NonJavaThreadsList_lock      = nullptr;
 Mutex*   NonJavaThreadsListSync_lock  = nullptr;
 Monitor* CGC_lock                     = nullptr;
@@ -156,7 +156,7 @@ void mutex_init() {
   // when uninterruptible code is executed (so, we don't want to risk any safepoints).
   MUTEX_DEFN(PeriodicTask_lock               , PaddedMonitor, nosafepoint);
 
-  MUTEX_DEFN(G1StrongCodeRoots_lock          , PaddedMonitor, nosafepoint);
+  MUTEX_DEFN(StrongCodeRoots_lock            , PaddedMonitor, nosafepoint);
 
   if (UseG1GC) {
     MUTEX_DEFN(G1OldGCCount_lock             , PaddedMonitor, safepoint-1, true);

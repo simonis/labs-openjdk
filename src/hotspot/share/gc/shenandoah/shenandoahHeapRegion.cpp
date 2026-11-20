@@ -633,9 +633,42 @@ ShenandoahHeapRegion* ShenandoahHeapRegion::humongous_start_region() const {
   return r;
 }
 
+#ifdef SVM
+void ShenandoahHeapRegion::add_code_root(nmethod* nm) {
+  assert(nm != nullptr, "sanity");
+  // There is no need to keep track of the code roots of the image heap and the metaspace: their
+  // objects are always live and are never moved (see G1HeapRegionRemSet::add_code_root()).
+  if (is_image_heap_or_metaspace()) {
+    return;
+  }
+  assert(!is_humongous_continuation(), "code roots must be registered with the humongous start region");
+  _code_roots.add(nm);
+}
+
+void ShenandoahHeapRegion::remove_code_root(nmethod* nm) {
+  assert(nm != nullptr, "sanity");
+  _code_roots.remove(nm);
+  // Check that there were no duplicates
+  guarantee(!_code_roots.contains(nm), "duplicate entry found");
+}
+
+void ShenandoahHeapRegion::code_roots_do(NMethodClosure* cl) {
+  assert_at_safepoint();
+  _code_roots.reset_table_scanner();
+  _code_roots.nmethods_do(cl);
+}
+
+void ShenandoahHeapRegion::clear_code_roots() {
+  assert_at_safepoint();
+  _code_roots.clear();
+}
+#endif // SVM
 
 void ShenandoahHeapRegion::recycle_internal() {
   assert(_recycling.is_set() && is_trash(), "Wrong state");
+#ifdef SVM
+  assert(!has_code_roots(), "trash region must not be referenced from nmethods");
+#endif // SVM
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
   _mixed_candidate_garbage_words = 0;

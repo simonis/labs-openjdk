@@ -38,7 +38,7 @@
 namespace svm_gc {
 
 extern Monitor* Heap_lock;                       // a lock on the heap
-extern Monitor* G1StrongCodeRoots_lock;          // NOTE (chaeubl): was named CodeCache_lock previously - as this lock is reachable from uninterruptible SVM code, we may only hold it in VERY few places.
+extern Monitor* StrongCodeRoots_lock;            // NOTE (chaeubl): was named CodeCache_lock previously - as this lock is reachable from uninterruptible SVM code, we may only hold it in VERY few places.
 extern Mutex*   NonJavaThreadsList_lock;         // a lock on the NonJavaThreads list
 extern Mutex*   NonJavaThreadsListSync_lock;     // a lock for NonJavaThreads list synchronization
 extern Monitor* CGC_lock;                        // used for coordination between

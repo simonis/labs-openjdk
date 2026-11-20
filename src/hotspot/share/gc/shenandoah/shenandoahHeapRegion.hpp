@@ -35,6 +35,9 @@
 #include "gc/shenandoah/shenandoahHeap.hpp"
 #include "gc/shenandoah/shenandoahPadding.hpp"
 #include "utilities/sizes.hpp"
+#ifdef SVM
+#include "gc/shenandoah/shenandoahCodeRootSet.hpp"
+#endif // SVM
 
 namespace svm_gc {
 
@@ -296,6 +299,16 @@ public:
                                                   cur_state == _closed_image_heap_humongous_start || cur_state == _open_image_heap_humongous_start ||
                                                   cur_state == _closed_image_heap_humongous_cont  || cur_state == _open_image_heap_humongous_cont; }
   bool is_image_heap_or_metaspace() const { return is_image_heap() || is_metaspace(); }
+
+  // Code roots support (NOTE: similar to G1HeapRegion). The code roots are only modified by Java
+  // threads that install code (with StrongCodeRoots_lock held) and by the GC at safepoints.
+  void add_code_root(nmethod* nm);
+  void remove_code_root(nmethod* nm);
+  // Applies the closure to the code roots. Must only be called by one thread at a time.
+  void code_roots_do(NMethodClosure* cl);
+  bool code_roots_contains(nmethod* nm) { return _code_roots.contains(nm); }
+  bool has_code_roots()                 { return !_code_roots.is_empty(); }
+  void clear_code_roots();
 #endif // !SVM
 
   inline bool is_young() const;
@@ -360,6 +373,11 @@ private:
 
   // This is only read/written by a gc worker to avoid unnecessary bitmap resets
   bool _needs_bitmap_reset;
+
+#ifdef SVM
+  // The nmethods that reference objects in this region (like the code roots of G1HeapRegionRemSet).
+  ShenandoahCodeRootSet _code_roots;
+#endif // SVM
 
 public:
   ShenandoahHeapRegion(HeapWord* start, size_t index, bool committed);

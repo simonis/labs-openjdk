@@ -59,6 +59,11 @@ void ShenandoahOldGC::op_final_mark() {
     _mark.finish_mark();
     assert(!heap->cancelled_gc(), "STW mark cannot OOM");
 
+#ifdef SVM
+    // Free the runtime-compiled code that marking decided to unload.
+    heap->svm_clean_runtime_code_cache();
+#endif // SVM
+
     // Old collection is complete, the young generation no longer needs this
     // reference to the old concurrent mark so clean it up.
     heap->young_generation()->set_old_gen_task_queues(nullptr);

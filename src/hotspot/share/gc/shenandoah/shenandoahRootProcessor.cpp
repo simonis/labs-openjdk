@@ -140,6 +140,98 @@ ShenandoahOpenImageHeapRoots::~ShenandoahOpenImageHeapRoots() {
   assert(_semaphore.value == 0, "semaphore should be zero");
   assert(_processed_regions == open_image_heap_and_metaspace_regions(), "all regions should have been processed");
 }
+
+ShenandoahSVMCodeCacheRoots::ShenandoahSVMCodeCacheRoots(ShenandoahPhaseTimings::Phase phase) :
+  _phase(phase),
+  _table(CodeCache::code_info_table()),
+  _length(_table == nullptr ? 0 : _table->length()),
+  _claimed(0) {
+  // The code info table can only change outside of safepoints (or during teardown).
+  assert(SafepointSynchronize::is_at_safepoint() || SVMIsolateData::_during_teardown, "must be");
+}
+
+void ShenandoahSVMCodeCacheRoots::nmethods_do(NMethodClosure* nmethod_cl, uint worker_id) {
+  ShenandoahWorkerTimingsTracker timer(_phase, ShenandoahPhaseTimings::CodeCacheRoots, worker_id, true /* cumulative */);
+  nmethods_do(nmethod_cl);
+}
+
+void ShenandoahSVMCodeCacheRoots::nmethods_do(NMethodClosure* nmethod_cl) {
+  assert(_table == CodeCache::code_info_table(), "code info table must not change");
+  for (int start = Atomic::fetch_then_add(&_claimed, _chunk_size, memory_order_relaxed);
+       start < _length;
+       start = Atomic::fetch_then_add(&_claimed, _chunk_size, memory_order_relaxed)) {
+    int end = MIN2(_length, start + _chunk_size);
+    for (int i = start; i < end; i++) {
+      nmethod* nm = (nmethod*)_table->word_at(i);
+      if (nm != nullptr) {
+        nmethod_cl->do_nmethod(nm);
+      }
+    }
+  }
+}
+
+ShenandoahSVMRegionCodeRoots::ShenandoahSVMRegionCodeRoots(ShenandoahPhaseTimings::Phase phase, Regions regions) :
+  _phase(phase),
+  _regions(regions),
+  _nmethod_mark_scope(),
+  _iterator() {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be");
+}
+
+void ShenandoahSVMRegionCodeRoots::nmethods_do(NMethodClosure* nmethod_cl, uint worker_id) {
+  ShenandoahWorkerTimingsTracker timer(_phase, ShenandoahPhaseTimings::CodeCacheRoots, worker_id, true /* cumulative */);
+  nmethods_do(nmethod_cl);
+}
+
+// Processes every nmethod only once, even if it is a code root of several regions.
+class ShenandoahSVMClaimingNMethodClosure : public NMethodClosure {
+private:
+  NMethodClosure* const _cl;
+
+public:
+  explicit ShenandoahSVMClaimingNMethodClosure(NMethodClosure* cl) : _cl(cl) {}
+
+  void do_nmethod(nmethod* nm) override {
+    if (nm->oops_do_try_claim()) {
+      _cl->do_nmethod(nm);
+    }
+  }
+};
+
+void ShenandoahSVMRegionCodeRoots::nmethods_do(NMethodClosure* nmethod_cl) {
+  ShenandoahSVMClaimingNMethodClosure claiming_cl(nmethod_cl);
+  for (ShenandoahHeapRegion* r = _iterator.next(); r != nullptr; r = _iterator.next()) {
+    bool selected = (_regions == COLLECTION_SET) ? r->is_cset() : r->is_young();
+    if (selected && r->has_code_roots()) {
+      r->code_roots_do(&claiming_cl);
+    }
+  }
+}
+
+template <class T>
+void ShenandoahSVMUpdateCodeRootsClosure::GatheringOopClosure::do_oop_work(T* p) {
+  _work->do_oop(p);
+  T o = RawAccess<>::oop_load(p);
+  if (!CompressedOops::is_null(o)) {
+    oop obj = CompressedOops::decode_not_null(o);
+    ShenandoahHeapRegion* r = _heap->heap_region_containing(obj);
+    assert(!r->is_cset() || r->code_roots_contains(_nm), "nmethod must be a code root for objects in the collection set");
+    r->add_code_root(_nm);
+  }
+}
+
+void ShenandoahSVMUpdateCodeRootsClosure::GatheringOopClosure::do_oop(oop* p) {
+  do_oop_work(p);
+}
+
+void ShenandoahSVMUpdateCodeRootsClosure::GatheringOopClosure::do_oop(narrowOop* p) {
+  do_oop_work(p);
+}
+
+void ShenandoahSVMUpdateCodeRootsClosure::do_nmethod(nmethod* nm) {
+  _oc.set_nm(nm);
+  nm->oops_do(&_oc);
+}
 #endif // SVM
 
 #ifndef SVM
@@ -266,6 +358,7 @@ ShenandoahRootUpdater::ShenandoahRootUpdater(uint n_workers, ShenandoahPhaseTimi
   _code_roots(phase) {
 #else
   _open_image_heap_roots(phase, n_workers),
+  _code_roots(phase, ShenandoahSVMRegionCodeRoots::COLLECTION_SET),
   _weak_roots(phase) {
 #endif // !SVM
 }
@@ -282,6 +375,7 @@ ShenandoahRootAdjuster::ShenandoahRootAdjuster(uint n_workers, ShenandoahPhaseTi
   _code_roots(phase) {
 #else
   _open_image_heap_roots(phase, n_workers),
+  _code_cache_roots(phase),
   _weak_roots(phase) {
 #endif // !SVM
   assert(ShenandoahHeap::heap()->is_full_gc_in_progress(), "Full GC only");
@@ -307,6 +401,9 @@ void ShenandoahRootAdjuster::roots_do(uint worker_id, OopClosure* oops) {
   _thread_roots.oops_do(oops, nullptr, worker_id);
 #ifdef SVM
   _open_image_heap_roots.oops_do(oops, worker_id);
+  // Also adjusts the object fields of the nmethods that will be freed at the end of this full GC.
+  NMethodToOopClosure adjust_code_closure(oops, !NMethodToOopClosure::FixRelocations);
+  _code_cache_roots.nmethods_do(&adjust_code_closure, worker_id);
 #endif // SVM
 }
 
@@ -320,6 +417,7 @@ ShenandoahHeapIterationRootScanner::ShenandoahHeapIterationRootScanner(uint n_wo
   _code_roots(ShenandoahPhaseTimings::heap_iteration_roots) {
 #else
   _open_image_heap_roots(ShenandoahPhaseTimings::heap_iteration_roots, 1),
+  _code_cache_roots(ShenandoahPhaseTimings::heap_iteration_roots),
   _weak_roots(ShenandoahPhaseTimings::heap_iteration_roots) {
 #endif // !SVM
 }
@@ -369,6 +467,8 @@ void ShenandoahHeapIterationRootScanner::roots_do(OopClosure* oops) {
 #else
   _thread_roots.threads_do(&tc_cl, 0);
   _open_image_heap_roots.oops_do(oops, 0);
+  NMethodToOopClosure code(oops, !NMethodToOopClosure::FixRelocations);
+  _code_cache_roots.nmethods_do(&code, 0);
 #endif // !SVM
 }
 

@@ -116,7 +116,7 @@ void G1ConditionalMarkCodeCacheClosure::do_nmethod(nmethod* nm) {
 // Later on, either the nmethod state would be incorrect or the oops would no longer be valid.
 void G1ConditionalMarkCodeCacheClosure::unregister_nmethod(nmethod* nm) {
   assert(nm->has_code_constants(), "must be");
-  MutexLocker ml(G1StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
+  MutexLocker ml(StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
   G1CollectedHeap::heap()->unregister_nmethod(nm);
 }
 #endif // SVM

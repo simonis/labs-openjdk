@@ -816,20 +816,32 @@ void ShenandoahConcurrentGC::op_mark() {
 // may allocate. Only thread roots are handled here, VM strong / image-heap / weak roots are global and
 // are safely resolved via the load-reference barrier and updated at the STW final update-refs phase.
 // Weak roots in particular must not be processed before the weak-roots phase.
+//
+// The oops of the runtime-compiled code (nmethods) are evacuated and updated here as well, for the
+// same reason: SVM has no nmethod entry barriers, and compiled code uses its object constants
+// without load reference barriers, so the nmethods must only contain to-space references once the
+// mutators resume. The same applies to the frame and deoptimization metadata, which SVM reads
+// without barriers as well. Like a G1 evacuation pause, this only processes the code roots of the
+// collection set regions, and registers the nmethods with the regions of the evacuated objects.
+// New nmethods only get references from the mutators, i.e. to-space references.
 class ShenandoahSVMEvacUpdateThreadRootsTask : public WorkerTask {
 private:
-  ShenandoahThreadRoots _thread_roots;
+  ShenandoahThreadRoots        _thread_roots;
+  ShenandoahSVMRegionCodeRoots _code_roots;
 public:
   ShenandoahSVMEvacUpdateThreadRootsTask() :
     WorkerTask("Shenandoah SVM Evac/Update Thread Roots"),
     _thread_roots(ShenandoahPhaseTimings::conc_thread_roots,
-                  ShenandoahHeap::heap()->workers()->active_workers() > 1) {}
+                  ShenandoahHeap::heap()->workers()->active_workers() > 1),
+    _code_roots(ShenandoahPhaseTimings::conc_thread_roots, ShenandoahSVMRegionCodeRoots::COLLECTION_SET) {}
 
   void work(uint worker_id) {
     ShenandoahParallelWorkerSession worker_session(worker_id);
     ShenandoahEvacOOMScope oom_scope;
     ShenandoahEvacuateUpdateMetadataClosure cl;
     _thread_roots.oops_do(&cl, nullptr, worker_id);
+    ShenandoahSVMUpdateCodeRootsClosure nmethods_cl(&cl);
+    _code_roots.nmethods_do(&nmethods_cl, worker_id);
   }
 };
 #endif // SVM
@@ -846,6 +858,11 @@ void ShenandoahConcurrentGC::op_final_mark() {
   if (!heap->cancelled_gc()) {
     _mark.finish_mark();
     assert(!heap->cancelled_gc(), "STW mark cannot OOM");
+
+#ifdef SVM
+    // Free the runtime-compiled code that marking decided to unload, before any object is evacuated.
+    heap->svm_clean_runtime_code_cache();
+#endif // SVM
 
     // Notify JVMTI that the tagmap table will need cleaning.
     NOT_SVM(JvmtiTagMap::set_needs_cleaning();)

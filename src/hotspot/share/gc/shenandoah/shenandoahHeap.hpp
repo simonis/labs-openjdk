@@ -691,6 +691,34 @@ public:
   void svm_finish_heap_walk();
   // The auxiliary bitmap which is only valid between the two calls above.
   HeapWord* svm_aux_bitmap_storage() const { return _aux_bitmap_region.start(); }
+
+  // Invalidates and frees the runtime-compiled code that marking decided to unload (see
+  // ShenandoahMark::svm_mark_code_cache()). This runs Java code on the VM thread, so it must be
+  // called at a safepoint after the GC work that depends on the nmethod states has finished, and
+  // only while the references in the nmethods are up to date (before evacuation or after all
+  // references were updated): the Java code accesses the nmethod object fields without barriers.
+  void svm_clean_runtime_code_cache();
+
+  // Code roots support (NOTE: similar to G1CollectedHeap): every heap region knows the nmethods that
+  // reference objects in it, so that evacuation and reference updating only need to process the
+  // nmethods that reference objects in the collection set (see ShenandoahSVMRegionCodeRoots).
+  // Registration is done by the Java threads that install code (see svm_gc_register_*()) and by the
+  // GC when it moves objects that are referenced from nmethods.
+  void register_object_fields(nmethod* nm);
+  void register_code_constants(nmethod* nm);
+  void register_frame_metadata(nmethod* nm);
+  void register_deopt_metadata(nmethod* nm);
+  // A full GC moves the objects that are referenced from nmethods, so it clears the code roots of
+  // all regions before compaction and registers all nmethods again afterwards.
+  void clear_code_roots();
+  void rebuild_code_roots();
+  // Records that marking unloaded an nmethod, so that svm_clean_runtime_code_cache() has work to do.
+  void svm_set_has_unloaded_nmethods() { _svm_has_unloaded_nmethods.set(); }
+
+private:
+  ShenandoahSharedFlag _svm_has_unloaded_nmethods;
+
+public:
 #endif // SVM
   // Parallel heap iteration support
   ParallelObjectIteratorImpl* parallel_object_iterator(uint workers) override;
@@ -707,8 +735,8 @@ public:
 // ---------- Code roots handling hooks
 //
 public:
-  void register_nmethod(nmethod* nm) override SVM_ONLY( { Unimplemented(); } )
-  void unregister_nmethod(nmethod* nm) override SVM_ONLY( { Unimplemented(); } )
+  void register_nmethod(nmethod* nm) override;
+  void unregister_nmethod(nmethod* nm) override;
 #ifndef SVM
   void verify_nmethod(nmethod* nm) override {}
 #endif // !SVM

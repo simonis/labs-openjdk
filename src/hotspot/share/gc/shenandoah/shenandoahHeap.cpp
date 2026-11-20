@@ -1571,6 +1571,11 @@ void ShenandoahHeap::trash_cset_regions() {
   ShenandoahHeapRegion* r;
   set->clear_current_index();
   while ((r = set->next()) != nullptr) {
+#ifdef SVM
+    // All nmethods that referenced objects in this region were updated and registered with the
+    // regions of the evacuated objects (NOTE: G1 clears the code roots when it frees the region).
+    r->clear_code_roots();
+#endif // SVM
     r->make_trash();
   }
   collection_set()->clear();
@@ -2027,6 +2032,126 @@ bool ShenandoahHeap::svm_prepare_heap_walk() {
 
 void ShenandoahHeap::svm_finish_heap_walk() {
   reclaim_aux_bitmap_for_iteration();
+}
+
+void ShenandoahHeap::svm_clean_runtime_code_cache() {
+  assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Must be at a safepoint");
+  assert(Thread::current()->is_VM_thread(), "Must be the VM thread");
+  assert(!has_forwarded_objects(), "The nmethod oops must be up to date");
+  if (SVMGlobalData::_clean_runtime_code_cache == nullptr || !_svm_has_unloaded_nmethods.is_set()) {
+    // Nothing to free (unlike G1, which always calls into Java).
+    return;
+  }
+  _svm_has_unloaded_nmethods.unset();
+  // The Java code runs with the barriers of the current thread, whose thread-local gc state is
+  // only updated at the end of the pause (see propagate_gc_state_to_all_threads()). Use the current
+  // global gc state, so that, e.g., no SATB entries are recorded after marking has finished.
+  ShenandoahThreadLocalData::set_gc_state(Thread::current(), _gc_state.raw_value());
+  // NOTE: similar to the code cache cleaning at the end of G1ConcurrentMark::remark() and
+  // G1FullCollector::complete_collection().
+  SVMGlobalData::_clean_runtime_code_cache(CompressedOops::base(), IsolateThread::current());
+}
+
+// NOTE: similar to RegisterNMethodOopClosure in g1CollectedHeap.cpp
+class ShenandoahRegisterNMethodOopClosure : public OopClosure {
+private:
+  ShenandoahHeap* const _heap;
+  nmethod* const        _nm;
+
+  template <class T>
+  void do_oop_work(T* p) {
+    T o = RawAccess<>::oop_load(p);
+    if (!CompressedOops::is_null(o)) {
+      oop obj = CompressedOops::decode_not_null(o);
+      _heap->heap_region_containing(obj)->add_code_root(_nm);
+    }
+  }
+
+public:
+  ShenandoahRegisterNMethodOopClosure(ShenandoahHeap* heap, nmethod* nm) : _heap(heap), _nm(nm) {}
+
+  void do_oop(oop* p)       override { do_oop_work(p); }
+  void do_oop(narrowOop* p) override { do_oop_work(p); }
+};
+
+// NOTE: similar to UnregisterNMethodOopClosure in g1CollectedHeap.cpp
+class ShenandoahUnregisterNMethodOopClosure : public OopClosure {
+private:
+  ShenandoahHeap* const _heap;
+  nmethod* const        _nm;
+
+  template <class T>
+  void do_oop_work(T* p) {
+    T o = RawAccess<>::oop_load(p);
+    if (!CompressedOops::is_null(o)) {
+      oop obj = CompressedOops::decode_not_null(o);
+      _heap->heap_region_containing(obj)->remove_code_root(_nm);
+    }
+  }
+
+public:
+  ShenandoahUnregisterNMethodOopClosure(ShenandoahHeap* heap, nmethod* nm) : _heap(heap), _nm(nm) {}
+
+  void do_oop(oop* p)       override { do_oop_work(p); }
+  void do_oop(narrowOop* p) override { do_oop_work(p); }
+};
+
+void ShenandoahHeap::register_object_fields(nmethod* nm) {
+  ShenandoahRegisterNMethodOopClosure reg_cl(this, nm);
+  nm->oops_do_object_fields(&reg_cl);
+}
+
+void ShenandoahHeap::register_code_constants(nmethod* nm) {
+  ShenandoahRegisterNMethodOopClosure reg_cl(this, nm);
+  nm->oops_do_code_constants(&reg_cl);
+}
+
+void ShenandoahHeap::register_frame_metadata(nmethod* nm) {
+  ShenandoahRegisterNMethodOopClosure reg_cl(this, nm);
+  nm->oops_do_frame_metadata(&reg_cl);
+}
+
+void ShenandoahHeap::register_deopt_metadata(nmethod* nm) {
+  ShenandoahRegisterNMethodOopClosure reg_cl(this, nm);
+  nm->oops_do_deopt_metadata(&reg_cl);
+}
+
+void ShenandoahHeap::register_nmethod(nmethod* nm) {
+  ShenandoahRegisterNMethodOopClosure reg_cl(this, nm);
+  nm->oops_do(&reg_cl);
+}
+
+void ShenandoahHeap::unregister_nmethod(nmethod* nm) {
+  ShenandoahUnregisterNMethodOopClosure unreg_cl(this, nm);
+  nm->oops_do(&unreg_cl);
+}
+
+class ShenandoahRebuildCodeRootsClosure : public NMethodClosure {
+private:
+  ShenandoahHeap* const _heap;
+
+public:
+  explicit ShenandoahRebuildCodeRootsClosure(ShenandoahHeap* heap) : _heap(heap) {}
+
+  void do_nmethod(nmethod* nm) override {
+    if (!nm->will_be_freed()) {
+      _heap->register_nmethod(nm);
+    }
+  }
+};
+
+void ShenandoahHeap::clear_code_roots() {
+  assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Must be at a safepoint");
+  for (size_t i = 0; i < num_regions(); i++) {
+    get_region(i)->clear_code_roots();
+  }
+}
+
+// NOTE: similar to G1CollectedHeap::rebuild_code_roots()
+void ShenandoahHeap::rebuild_code_roots() {
+  assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Must be at a safepoint");
+  ShenandoahRebuildCodeRootsClosure nmethod_cl(this);
+  CodeCache::nmethods_do(&nmethod_cl);
 }
 #endif // SVM
 

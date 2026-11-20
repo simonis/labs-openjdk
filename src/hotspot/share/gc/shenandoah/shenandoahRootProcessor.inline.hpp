@@ -166,7 +166,10 @@ void ShenandoahSTWRootScanner::roots_do(T* oops, uint worker_id) {
     _cld_roots.always_strong_cld_do(&clds, worker_id);
 #endif // !SVM
   } else {
-    _thread_roots.oops_do(oops, nullptr, worker_id);
+    // Code unloading on SVM is independent of class unloading: the tethers of the nmethods on the
+    // stack are always marked (see MarkingNMethodClosure), the other nmethod oops are marked at the
+    // end of marking (see ShenandoahMark::svm_mark_code_cache()).
+    _thread_roots.oops_do(oops, NOT_SVM(nullptr) SVM_ONLY(&nmethods_cl), worker_id);
 #ifndef SVM
     _code_roots.nmethods_do(&nmethods_cl, worker_id);
     _cld_roots.cld_do(&clds, worker_id);
@@ -201,6 +204,9 @@ void ShenandoahRootUpdater::roots_do(uint worker_id, IsAlive* is_alive, KeepAliv
   _code_roots.nmethods_do(codes_cl, worker_id);
 #else
   _open_image_heap_roots.oops_do(keep_alive, worker_id);
+  // Only the nmethods that reference objects in the collection set need to be updated.
+  ShenandoahSVMUpdateCodeRootsClosure update_nmethods(keep_alive);
+  _code_roots.nmethods_do(&update_nmethods, worker_id);
 #endif // !SVM
   _thread_roots.oops_do(keep_alive, nullptr, worker_id);
 }

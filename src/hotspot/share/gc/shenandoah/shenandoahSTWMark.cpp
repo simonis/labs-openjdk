@@ -110,6 +110,13 @@ void ShenandoahSTWMark::mark() {
     assert(task_queues()->is_empty(), "Should be empty");
   }
 
+#ifdef SVM
+  // Now that all other marking is complete, mark through the runtime-compiled code. If old
+  // marking is in progress (a young degenerated cycle that interrupted it), all oops of the
+  // unloaded nmethods must be marked as well, see ShenandoahConcurrentMark::finish_mark_work().
+  svm_mark_code_cache(heap->is_concurrent_old_mark_in_progress() /* remark */);
+#endif // SVM
+
   _generation->set_mark_complete();
   end_mark();
 

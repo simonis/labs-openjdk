@@ -684,39 +684,39 @@ EXPORT_FOR_SVM void svm_g1gc_get_region_boundaries(G1RegionBoundaries *region_bo
   }
 }
 
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the G1StrongCodeRoots_lock temporarily.
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the StrongCodeRoots_lock temporarily.
 EXPORT_FOR_SVM void svm_g1gc_register_object_fields(nmethod* nm) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   assert(nm->state() == nmethod::state_code_constants_live, "must be");
 
-  MutexLocker ml(G1StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
+  MutexLocker ml(StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
   G1CollectedHeap::heap()->register_object_fields(nm);
 }
 
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the G1StrongCodeRoots_lock temporarily.
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the StrongCodeRoots_lock temporarily.
 EXPORT_FOR_SVM void svm_g1gc_register_code_constants(nmethod* nm) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   assert(nm->state() == nmethod::state_code_constants_live, "must be");
 
-  MutexLocker ml(G1StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
+  MutexLocker ml(StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
   G1CollectedHeap::heap()->register_code_constants(nm);
 }
 
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the G1StrongCodeRoots_lock temporarily.
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the StrongCodeRoots_lock temporarily.
 EXPORT_FOR_SVM void svm_g1gc_register_frame_metadata(nmethod* nm) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   assert(nm->state() == nmethod::state_code_constants_live, "must be");
 
-  MutexLocker ml(G1StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
+  MutexLocker ml(StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
   G1CollectedHeap::heap()->register_frame_metadata(nm);
 }
 
-// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the G1StrongCodeRoots_lock temporarily.
+// NO_TRANSITION - Almost uninterruptible code that may be called from any Java thread. This method may block on the StrongCodeRoots_lock temporarily.
 EXPORT_FOR_SVM void svm_g1gc_register_deopt_metadata(nmethod* nm) {
   assert(IsolateThread::current()->has_status_java(), "unexpected thread state");
   assert(nm->state() == nmethod::state_code_constants_live, "must be");
 
-  MutexLocker ml(G1StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
+  MutexLocker ml(StrongCodeRoots_lock, Mutex::_no_safepoint_check_flag);
   G1CollectedHeap::heap()->register_deopt_metadata(nm);
 }
 

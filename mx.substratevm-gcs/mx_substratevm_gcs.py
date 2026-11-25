@@ -23,6 +23,8 @@
 # questions.
 #
 
+import argparse
+import json
 import os
 import re
 import shlex
@@ -545,3 +547,264 @@ def gate_body(args, tasks):
             mx.command_function('build')(['--no-daemon'])
 
 mx_gate.add_gate_runner(suite, gate_body)
+
+
+#
+# 'mx vscodeinit' - generate a VS Code workspace (with ccls as indexer) for the
+# C++ GC sources, respecting the build configuration selected via SVM_GC_TARGETS.
+#
+# This is the mx/ninja replacement for the old Makefile-based 'VSCODE=yes' target
+# (src/hotspot/ide/vscode/hotspot/CreateVSCodeProject.gmk). For every selected
+# configuration it writes a 'compile_commands.json' compilation database (using the
+# exact same compiler flags, includes, defines and source set as the real ninja
+# build, derived from _TargetBuildConfig) plus a '<name>.code-workspace' file whose
+# name contains the configuration name.
+#
+
+VSCODE_INDEXER = 'ccls'
+
+_GC_BY_NAME = {gc.name: gc for gc in GCS}
+_REFERENCE_MODE_DEFINES = dict(_TargetBuildConfig.REFERENCE_MODES)
+_VSCODE_DEBUG_LEVELS = _TargetBuildConfig.DEBUG_LEVELS
+_VSCODE_REFERENCE_MODES = tuple(mode for mode, _ in _TargetBuildConfig.REFERENCE_MODES)
+_VSCODE_TARGET_FILE_FORMATS = _TargetBuildConfig.TARGET_FILE_FORMATS
+
+# Default debug level / target file format used to materialize a concrete indexing
+# configuration from a partially-specified SVM_GC_TARGETS entry (e.g. 'build_genshen'
+# or 'build_genshen_cr', which do not pin a debug level or output format). 'fastdebug'
+# and 'so' match the configuration recommended for local development/debugging.
+_VSCODE_DEFAULT_DEBUG_LEVEL = 'fastdebug'
+_VSCODE_DEFAULT_TARGET_FILE_FORMAT = 'so'
+
+
+def _vscode_config_name(gc_name, debug_level, reference_mode, target_file_format):
+    return f'{gc_name}-{debug_level}-{reference_mode}-{target_file_format}'
+
+
+def _vscode_configs_for_target(token):
+    """Expand a single SVM_GC_TARGETS entry into concrete indexing configurations.
+
+    Each configuration is a (gc_name, debug_level, reference_mode, target_file_format)
+    tuple. Fully-qualified targets ('build_<gc>_<debug>_<ref>_<so|a>') map to exactly
+    one configuration; the partial targets that the ninja build also understands
+    ('build_all', 'build_<gc>', 'build_<gc>_<ref>') are expanded using the default
+    debug level and output format.
+    """
+    if token == 'build_all':
+        return [(gc.name, _VSCODE_DEFAULT_DEBUG_LEVEL, reference_mode, _VSCODE_DEFAULT_TARGET_FILE_FORMAT)
+                for gc in GCS for reference_mode in _VSCODE_REFERENCE_MODES]
+
+    if not token.startswith('build_'):
+        mx.abort(f"Cannot parse SVM_GC_TARGETS entry '{token}': expected it to start with 'build_'")
+
+    parts = token[len('build_'):].split('_')
+    gc_name = parts[0] if parts else ''
+    if gc_name not in _GC_BY_NAME:
+        mx.abort(f"Cannot parse SVM_GC_TARGETS entry '{token}': unknown GC '{gc_name}' "
+                 f"(known GCs: {', '.join(sorted(_GC_BY_NAME))})")
+    tail = parts[1:]
+
+    # build_<gc>_<debug>_<ref>_<so|a>
+    if (len(tail) == 3 and tail[0] in _VSCODE_DEBUG_LEVELS
+            and tail[1] in _VSCODE_REFERENCE_MODES and tail[2] in _VSCODE_TARGET_FILE_FORMATS):
+        return [(gc_name, tail[0], tail[1], tail[2])]
+    # build_<gc>_<ref>
+    if len(tail) == 1 and tail[0] in _VSCODE_REFERENCE_MODES:
+        return [(gc_name, _VSCODE_DEFAULT_DEBUG_LEVEL, tail[0], _VSCODE_DEFAULT_TARGET_FILE_FORMAT)]
+    # build_<gc>
+    if len(tail) == 0:
+        return [(gc_name, _VSCODE_DEFAULT_DEBUG_LEVEL, reference_mode, _VSCODE_DEFAULT_TARGET_FILE_FORMAT)
+                for reference_mode in _VSCODE_REFERENCE_MODES]
+
+    mx.abort(f"Cannot parse SVM_GC_TARGETS entry '{token}'. Supported forms are 'build_all', "
+             f"'build_<gc>', 'build_<gc>_<ref>' and 'build_<gc>_<debug>_<ref>_<so|a>'.")
+
+
+def _vscode_configs_from_targets(targets):
+    """Expand and de-duplicate (preserving order) a list of SVM_GC_TARGETS entries."""
+    configs = []
+    for token in targets:
+        for config in _vscode_configs_for_target(token):
+            if config not in configs:
+                configs.append(config)
+    return configs
+
+
+def _vscode_select_toolchain(project):
+    """Pick the toolchain to index with: prefer the host os/arch and a non-musl libc."""
+    toolchains = project.toolchains
+    if not toolchains:
+        mx.abort(f"No native toolchain is available for project '{project.name}'. "
+                 "VS Code generation is only supported on a buildable platform.")
+
+    host_os, host_arch = mx.get_os(), mx.get_arch()
+
+    def score(toolchain):
+        target = toolchain.spec.target
+        return (target.os == host_os and target.arch == host_arch, target.libc != 'musl')
+
+    return max(toolchains, key=score)
+
+
+def _vscode_resolve_cxx(toolchain):
+    """Resolve the C++ compiler command from the (ninja) toolchain, with fallbacks."""
+    toolchain_file = os.path.join(toolchain.get_path(), 'toolchain.ninja')
+    if not os.path.exists(toolchain_file):
+        # The toolchain description is generated as part of a build. Try to materialize
+        # it so the compile database matches the real build's compiler.
+        try:
+            mx.command_function('build')(['--dependencies', toolchain.toolchain_dist.name])
+        except BaseException as e:  # pylint: disable=broad-except
+            mx.logv(f'Could not build toolchain {toolchain.toolchain_dist.name}: {e}')
+
+    cxx = None
+    if os.path.exists(toolchain_file):
+        cxx = _ninja_toolchain_variable(toolchain_file, 'CXX')
+    if not cxx:
+        cxx = mx.get_env('CXX') or 'c++'
+        mx.warn(f"Could not determine CXX from the ninja toolchain; falling back to '{cxx}'. "
+                "Build the project once ('mx build') so that the compile database uses the real compiler.")
+    return cxx
+
+
+def _vscode_compile_commands(config, gc, debug_level, reference_mode, target_file_format, cxx_tokens, project, output_dir):
+    """Write a compile_commands.json for one configuration and return its path."""
+    reference_mode_defines = _REFERENCE_MODE_DEFINES[reference_mode]
+    cflags = config.compiler_flags_for(gc, debug_level, target_file_format, reference_mode_defines)
+    # In the ninja manifest, defines like -DDEBUG_LEVEL=\"fastdebug\" are escaped for the
+    # shell. A compile_commands.json 'arguments' array is passed verbatim (no shell), so
+    # undo that escaping to pass real string literals to the preprocessor/indexer.
+    cflags = [flag.replace('\\"', '"') for flag in cflags]
+
+    includes = []
+    for include_dir in config.include_dirs():
+        abs_dir = project.dir if include_dir == '.' else os.path.join(project.dir, include_dir)
+        includes.append('-I' + abs_dir)
+
+    entries = []
+    for source_file in config.source_files(project.dir, '.cpp', gc):
+        abs_source = os.path.join(project.dir, source_file)
+        object_file = os.path.join(output_dir, 'objs',
+                                   config.object_file(gc, source_file, debug_level, reference_mode, target_file_format))
+        arguments = list(cxx_tokens) + cflags + includes + ['-c', abs_source, '-o', object_file]
+        entries.append({'directory': project.dir, 'file': abs_source, 'arguments': arguments})
+
+    path = os.path.join(output_dir, 'compile_commands.json')
+    with open(path, 'w', encoding='utf-8') as fp:
+        json.dump(entries, fp, indent=2)
+        fp.write('\n')
+    return path
+
+
+def _vscode_indexer_fragment(project, name):
+    path = os.path.join(project.dir, 'ide', 'vscode', 'hotspot', 'indexers', f'{VSCODE_INDEXER}-{name}.txt')
+    with open(path, encoding='utf-8') as fp:
+        lines = fp.read().split('\n')
+    # Drop leading/trailing blank lines so the fragment splices cleanly into the template.
+    while lines and lines[0].strip() == '':
+        lines.pop(0)
+    while lines and lines[-1].strip() == '':
+        lines.pop()
+    return lines
+
+
+def _vscode_workspace(project, config_name, cxx, output_dir):
+    """Render a .code-workspace from the template + ccls fragments and return its path."""
+    template_path = os.path.join(project.dir, 'ide', 'vscode', 'hotspot', 'template-workspace.jsonc')
+    with open(template_path, encoding='utf-8') as fp:
+        template_lines = fp.read().split('\n')
+
+    extensions_fragment = _vscode_indexer_fragment(project, 'extensions')
+    settings_fragment = _vscode_indexer_fragment(project, 'settings')
+
+    # Splice the indexer-specific fragments in place of their marker lines (this mirrors
+    # the 'sed -e /{{...}}/r fragment -e /{{...}}/d' handling of the original gmk).
+    merged_lines = []
+    for line in template_lines:
+        if '{{INDEXER_EXTENSIONS}}' in line:
+            merged_lines.extend(extensions_fragment)
+        elif '{{INDEXER_SETTINGS}}' in line:
+            merged_lines.extend(settings_fragment)
+        elif '{{EXTRA_WORKSPACE_ROOT}}' in line:
+            continue
+        else:
+            merged_lines.append(line)
+
+    text = '\n'.join(merged_lines)
+    substitutions = {
+        '{{TOPDIR}}': project.dir,
+        '{{TOPDIR_RELATIVE}}': output_dir,
+        '{{OUTPUTDIR}}': output_dir,
+        '{{WORKSPACE_ROOT}}': project.dir,
+        '{{CONF_NAME}}': config_name,
+        '{{COMPILER}}': cxx,
+    }
+    for key, value in substitutions.items():
+        text = text.replace(key, value)
+
+    path = os.path.join(output_dir, f'hotspot-{config_name}.code-workspace')
+    with open(path, 'w', encoding='utf-8') as fp:
+        fp.write(text)
+    return path
+
+
+def vscodeinit(args):
+    """generate VS Code workspace(s) with ccls indexing for the C++ GC sources"""
+    parser = argparse.ArgumentParser(prog='mx vscodeinit', description=(
+        'Generate a VS Code workspace (with ccls as indexer) for the C++ GC sources. '
+        'The configuration is taken from the TARGETS arguments if given, otherwise from the '
+        'SVM_GC_TARGETS environment variable (the same variable that selects what "mx build" '
+        'builds). One workspace is generated per selected configuration and its name contains '
+        'the configuration name.'))
+    parser.add_argument('targets', metavar='TARGET', nargs='*',
+                        help="SVM_GC_TARGETS-style target(s), e.g. 'build_genshen_fastdebug_cr_so'. "
+                             'Overrides $SVM_GC_TARGETS when present.')
+    opts = parser.parse_args(args)
+
+    project = mx.project('hotspot')
+    toolchain = _vscode_select_toolchain(project)
+    target = toolchain.spec.target
+    build_config = _TargetBuildConfig(target)
+
+    # Match the real build, which appends -fno-lifetime-dse on Linux when the compiler supports it.
+    if build_config.platform == 'linux':
+        try:
+            if _toolchain_supports_compiler_flag(toolchain, '-fno-lifetime-dse'):
+                build_config.compiler_flags += ['-fno-lifetime-dse']
+        except BaseException as e:  # pylint: disable=broad-except
+            mx.logv(f'Skipping -fno-lifetime-dse detection: {e}')
+
+    cxx = _vscode_resolve_cxx(toolchain)
+    cxx_tokens = shlex.split(cxx)
+
+    targets = opts.targets or mx.get_env('SVM_GC_TARGETS', '').split()
+    if targets:
+        mx.log(f"Generating VS Code workspace(s) for target(s): {' '.join(targets)}")
+        configs = _vscode_configs_from_targets(targets)
+    else:
+        configs = [(gc.name, _VSCODE_DEFAULT_DEBUG_LEVEL, reference_mode, _VSCODE_DEFAULT_TARGET_FILE_FORMAT)
+                   for gc in GCS for reference_mode in _VSCODE_REFERENCE_MODES]
+        mx.log('Neither TARGET arguments nor $SVM_GC_TARGETS were given; defaulting to '
+               f"'{_VSCODE_DEFAULT_DEBUG_LEVEL}'/'{_VSCODE_DEFAULT_TARGET_FILE_FORMAT}' for all GCs. "
+               'Set SVM_GC_TARGETS (or pass TARGET arguments) to select a specific configuration.')
+
+    generated = []
+    for gc_name, debug_level, reference_mode, target_file_format in configs:
+        gc = _GC_BY_NAME[gc_name]
+        config_name = _vscode_config_name(gc_name, debug_level, reference_mode, target_file_format)
+        output_dir = os.path.join(project.out_dir, target.subdir, 'vscode', config_name)
+        os.makedirs(output_dir, exist_ok=True)
+        _vscode_compile_commands(build_config, gc, debug_level, reference_mode, target_file_format,
+                                 cxx_tokens, project, output_dir)
+        workspace = _vscode_workspace(project, config_name, cxx, output_dir)
+        generated.append(workspace)
+
+    mx.log(f'Generated {len(generated)} VS Code workspace(s) for target {target.name} using CXX={cxx}:')
+    for workspace in generated:
+        mx.log(f'  {workspace}')
+    mx.log("Open one with: code '<path>.code-workspace'")
+
+
+mx.update_commands(suite, {
+    'vscodeinit': [vscodeinit, '[TARGET...]'],
+})

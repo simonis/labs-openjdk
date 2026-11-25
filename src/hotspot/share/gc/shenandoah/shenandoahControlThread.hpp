@@ -62,10 +62,6 @@ public:
   void request_gc(GCCause::Cause cause) override;
 
 #ifdef SVM
-  // Runs the STW cycle of a GC that executes inline on the VM operation thread. The shared
-  // skeleton and the protocol live in ShenandoahController::run_gc_on_vm_thread().
-  void svm_run_inline_gc_cycle(GCCause::Cause cause) override;
-  bool try_notify_gc_waiters() override;
   void svm_record_gc_request(GCCause::Cause cause) override { notify_control_thread(cause); }
 #endif // SVM
 
@@ -78,7 +74,7 @@ private:
   void service_stw_full_cycle(GCCause::Cause cause);
   void service_stw_degenerated_cycle(GCCause::Cause cause, ShenandoahGC::ShenandoahDegenPoint point);
 
-  void notify_gc_waiters() SVM_ONLY(override);
+  void notify_gc_waiters();
 
   // Handle GC request.
   // Blocks until GC is over.

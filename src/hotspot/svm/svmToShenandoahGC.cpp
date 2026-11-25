@@ -158,12 +158,12 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
     char *offsets, int offsets_length,
     queueVmOperationFunc collect_for_allocation_op, queueVmOperationFunc collect_full_op, queueVmOperationFunc collect_degenerated_op, queueVmOperationFunc init_mark_op, queueVmOperationFunc final_mark_op, queueVmOperationFunc init_update_refs_op, queueVmOperationFunc final_update_refs_op, queueVmOperationFunc final_roots_op, queueVmOperationFunc handshake_fallback_op,
     vmOperationStatusFunc wait_for_vm_operation_execution_status, vmOperationStatusFunc update_vm_operation_execution_status,
-    vmOperationDataFunc is_vm_operation_finished, yieldToQueuedVmOperationsFunc yield_to_queued_vm_operations,
+    vmOperationDataFunc is_vm_operation_finished,
+    waitForHandedOverGCOperationFunc wait_for_handed_over_gc_operation, executeHandedOverGCOperationFunc execute_handed_over_gc_operation,
     fetchThreadStackFramesFunc fetch_thread_stack_frames, freeThreadStackFramesFunc free_thread_stack_frames,
     fetchContinuationStackFramesFunc fetch_continuation_stack_frames, freeContinuationStackFramesFunc free_continuation_stack_frames,
     fetchCodeInfosFunc fetch_code_infos, freeCodeInfosFunc free_code_infos, cleanRuntimeCodeCacheFunc clean_runtime_code_cache,
-    threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm,
-    threadsLockFunc lock_threads_read, threadsLockFunc unlock_threads_read) {
+    threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm) {
   assert(isolate_thread->has_status_created(), "unexpected thread state");
   guarantee(SVMIsolateData::_heap_base == nullptr, "GC doesn't support multiple isolates at the moment.");
 
@@ -205,14 +205,13 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   guarantee(wait_for_vm_operation_execution_status != nullptr, "must be");
   guarantee(update_vm_operation_execution_status != nullptr, "must be");
   guarantee(is_vm_operation_finished != nullptr, "must be");
-  guarantee(yield_to_queued_vm_operations != nullptr, "must be");
+  guarantee(wait_for_handed_over_gc_operation != nullptr, "must be");
+  guarantee(execute_handed_over_gc_operation != nullptr, "must be");
   guarantee(fetch_thread_stack_frames != nullptr, "must be");
   guarantee(free_thread_stack_frames != nullptr, "must be");
   guarantee(transition_vm_to_native != nullptr, "must be");
   guarantee(fast_transition_native_to_vm != nullptr, "must be");
   guarantee(slow_transition_native_to_vm != nullptr, "must be");
-  guarantee(lock_threads_read != nullptr, "must be");
-  guarantee(unlock_threads_read != nullptr, "must be");
   guarantee(dynamic_hub_hashing_interface_mask == DynamicHubHashingInterfaceMask, "must be");
   guarantee(dynamic_hub_hashing_shift_offset == DynamicHubHashingShiftOffset, "must be");
 
@@ -253,7 +252,8 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   SVMGlobalData::_wait_for_vm_operation_execution_status = wait_for_vm_operation_execution_status;
   SVMGlobalData::_update_vm_operation_execution_status = update_vm_operation_execution_status;
   SVMGlobalData::_is_vm_operation_finished = is_vm_operation_finished;
-  SVMGlobalData::_yield_to_queued_vm_operations = yield_to_queued_vm_operations;
+  SVMGlobalData::_wait_for_handed_over_gc_operation = wait_for_handed_over_gc_operation;
+  SVMGlobalData::_execute_handed_over_gc_operation = execute_handed_over_gc_operation;
   SVMGlobalData::_fetch_thread_stack_frames = fetch_thread_stack_frames;
   SVMGlobalData::_free_thread_stack_frames = free_thread_stack_frames;
   SVMGlobalData::_fetch_continuation_stack_frames = fetch_continuation_stack_frames;
@@ -263,8 +263,6 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   SVMGlobalData::_transition_vm_to_native = transition_vm_to_native;
   SVMGlobalData::_try_fast_transition_native_to_vm = fast_transition_native_to_vm;
   SVMGlobalData::_slow_transition_native_to_vm = slow_transition_native_to_vm;
-  SVMGlobalData::_lock_threads_read = lock_threads_read;
-  SVMGlobalData::_unlock_threads_read = unlock_threads_read;
   SVMGlobalData::_clean_runtime_code_cache = clean_runtime_code_cache;
   SVMGlobalData::initialize_offsets(offsets, offsets_length);
   SVMGlobalData::verify_offsets(perf_data_support);
@@ -485,9 +483,13 @@ EXPORT_FOR_SVM void svm_gc_execute_vm_operation_main(VM_OperationData *data) {
   assert(SafepointSynchronize::get_safepoint_state() == SafepointSynchronize::at_safepoint, "must be at a safepoint");
   assert(IsolateThread::current()->has_status_native(), "unexpected thread state");
   // Record the operation that is currently executing on the VM operation thread.
-  // This is read e.g. by is_at_shenandoah_safepoint(). Save/restore here (rather
-  // than in VMThread::execute) so that it stays correct for nested VM operations
-  // (e.g. a GC the VM operation thread runs inline due to an allocation failure).
+  // This is read e.g. by is_at_shenandoah_safepoint() and by the allocation failure
+  // handling of the VM operation thread (see svm_handle_alloc_failure_on_vm_thread()).
+  // Only native GC operations set it, so it is null while the VM operation thread
+  // executes any other VM operation. Save/restore here rather than in VMThread::execute
+  // so that it stays correct for nested VM operations (e.g. a GC operation that the
+  // Control thread handed over while the VM operation thread executed another VM
+  // operation and waited for a GC).
   VM_Operation* const prev = VMThread::set_current_vm_operation(data->vm_operation());
   data->vm_operation()->evaluate();
   VMThread::restore_current_vm_operation(prev);

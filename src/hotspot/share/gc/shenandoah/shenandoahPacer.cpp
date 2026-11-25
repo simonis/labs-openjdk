@@ -303,7 +303,7 @@ void ShenandoahPacer::print_cycle_on(outputStream* out) {
 #ifndef SVM
   MutexLocker lock(Threads_lock);
 #else
-  ShenandoahThreadsLocker lock;
+  // ShenandoahPacing is not suported on SVM and will be removed in the future.
 #endif // !SVM
   double now = os::elapsedTime();
   double total = now - _last_time;

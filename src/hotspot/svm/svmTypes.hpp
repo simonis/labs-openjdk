@@ -39,7 +39,10 @@ class oopDesc;
 
 typedef void(*queueVmOperationFunc)(address, IsolateThread*, VM_OperationData*, VM_OperationWrapperData*);
 typedef void(*vmOperationStatusFunc)(address, IsolateThread*, VM_OperationWrapperData*, int);
-typedef bool(*yieldToQueuedVmOperationsFunc)(address, IsolateThread*, jlong);
+// Hand-over of the Control thread's GC operations to the VM operation thread while it waits for a GC
+// (see ShenandoahController::svm_handle_alloc_failure_on_vm_thread()).
+typedef bool(*waitForHandedOverGCOperationFunc)(address, IsolateThread*, jlong);
+typedef void(*executeHandedOverGCOperationFunc)(address, IsolateThread*);
 typedef bool(*vmOperationDataFunc)(address, IsolateThread*, VM_OperationWrapperData*);
 typedef StackFramesPerThread*(*fetchThreadStackFramesFunc)(address, IsolateThread*);
 typedef void*(*freeThreadStackFramesFunc)(address, IsolateThread*, StackFramesPerThread*);
@@ -50,9 +53,6 @@ typedef void*(*freeCodeInfosFunc)(address, IsolateThread*, CodeInfosPerThread*);
 typedef void*(*threadStateTransitionFunc)(IsolateThread*);
 typedef bool*(*fastThreadStateTransitionFunc)(IsolateThread*);
 typedef void(*cleanRuntimeCodeCacheFunc)(address, IsolateThread*);
-// Acquire/release the SVM ThreadsLock (unspecified-owner read access) from GC C++ code.
-// The IsolateThread argument is null (the caller is an unattached GC thread).
-typedef void(*threadsLockFunc)(address, IsolateThread*);
 
 // The following two enums must be kept in sync with the corresponding constants in
 // com.oracle.svm.core.gc.shenandoah.ShenandoahRegionType on the SubstrateVM side.

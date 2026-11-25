@@ -91,7 +91,8 @@ queueVmOperationFunc SVMGlobalData::_try_initiate_conc_mark_op = nullptr;
 vmOperationStatusFunc SVMGlobalData::_wait_for_vm_operation_execution_status = nullptr;
 vmOperationStatusFunc SVMGlobalData::_update_vm_operation_execution_status = nullptr;
 vmOperationDataFunc SVMGlobalData::_is_vm_operation_finished = nullptr;
-yieldToQueuedVmOperationsFunc SVMGlobalData::_yield_to_queued_vm_operations = nullptr;
+waitForHandedOverGCOperationFunc SVMGlobalData::_wait_for_handed_over_gc_operation = nullptr;
+executeHandedOverGCOperationFunc SVMGlobalData::_execute_handed_over_gc_operation = nullptr;
 fetchThreadStackFramesFunc SVMGlobalData::_fetch_thread_stack_frames = nullptr;
 freeThreadStackFramesFunc SVMGlobalData::_free_thread_stack_frames = nullptr;
 fetchContinuationStackFramesFunc SVMGlobalData::_fetch_continuation_stack_frames = nullptr;
@@ -102,8 +103,6 @@ cleanRuntimeCodeCacheFunc SVMGlobalData::_clean_runtime_code_cache = nullptr;
 threadStateTransitionFunc SVMGlobalData::_transition_vm_to_native = nullptr;
 fastThreadStateTransitionFunc SVMGlobalData::_try_fast_transition_native_to_vm = nullptr;
 threadStateTransitionFunc SVMGlobalData::_slow_transition_native_to_vm = nullptr;
-threadsLockFunc SVMGlobalData::_lock_threads_read = nullptr;
-threadsLockFunc SVMGlobalData::_unlock_threads_read = nullptr;
 
 void SVMGlobalData::initialize_offsets(char *offsets, int offsets_length) {
   guarantee(offsets_length == sizeof(SVMOffsets), "must match");

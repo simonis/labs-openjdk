@@ -108,10 +108,6 @@ public:
   }
 
 #ifdef SVM
-  // Runs the STW cycle of a GC that executes inline on the VM operation thread; the shared
-  // skeleton and the protocol live in ShenandoahController::run_gc_on_vm_thread().
-  void svm_run_inline_gc_cycle(GCCause::Cause cause) override;
-  bool try_notify_gc_waiters() override;
   void svm_record_gc_request(GCCause::Cause cause) override;
 #endif // SVM
 
@@ -120,9 +116,7 @@ private:
   bool check_cancellation_or_degen(ShenandoahGC::ShenandoahDegenPoint point);
 
   // Executes one GC cycle
-  // The snapshot is the value of _svm_inline_gc_count when the cycle decision in request was
-  // computed, see the staleness check in run_gc_cycle().
-  void run_gc_cycle(const ShenandoahGCRequest& request SVM_ONLY(COMMA size_t svm_inline_gc_count_at_decision));
+  void run_gc_cycle(const ShenandoahGCRequest& request);
 
   // Returns true if the old generation marking completed (i.e., final mark executed for old generation).
   bool resume_concurrent_old_cycle(ShenandoahOldGeneration* generation, GCCause::Cause cause);
@@ -134,7 +128,7 @@ private:
   void service_concurrent_normal_cycle(const ShenandoahGCRequest& request);
   void service_concurrent_old_cycle(const ShenandoahGCRequest& request);
 
-  void notify_gc_waiters() SVM_ONLY(override);
+  void notify_gc_waiters();
 
   // Blocks until at least one global GC cycle is complete.
   void handle_requested_gc(GCCause::Cause cause);

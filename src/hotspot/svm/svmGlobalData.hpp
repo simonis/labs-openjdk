@@ -293,7 +293,8 @@ struct SVMGlobalData {
   static vmOperationStatusFunc _wait_for_vm_operation_execution_status;
   static vmOperationStatusFunc _update_vm_operation_execution_status;
   static vmOperationDataFunc _is_vm_operation_finished;
-  static yieldToQueuedVmOperationsFunc _yield_to_queued_vm_operations;
+  static waitForHandedOverGCOperationFunc _wait_for_handed_over_gc_operation;
+  static executeHandedOverGCOperationFunc _execute_handed_over_gc_operation;
   static fetchThreadStackFramesFunc _fetch_thread_stack_frames;
   static freeThreadStackFramesFunc _free_thread_stack_frames;
   static fetchContinuationStackFramesFunc _fetch_continuation_stack_frames;
@@ -304,8 +305,6 @@ struct SVMGlobalData {
   static threadStateTransitionFunc _transition_vm_to_native;
   static fastThreadStateTransitionFunc _try_fast_transition_native_to_vm;
   static threadStateTransitionFunc _slow_transition_native_to_vm;
-  static threadsLockFunc _lock_threads_read;
-  static threadsLockFunc _unlock_threads_read;
 
   static void initialize_offsets(char *offsets, int offsets_length);
   static void verify_offsets(bool use_perf_data);

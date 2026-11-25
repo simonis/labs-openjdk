@@ -29,9 +29,95 @@
 #include "gc/shared/gcCause.hpp"
 #include "gc/shenandoah/shenandoahAllocRequest.hpp"
 #include "gc/shenandoah/shenandoahSharedVariables.hpp"
-#include "runtime/atomic.hpp"
 
 namespace svm_gc {
+
+#ifdef SVM
+/*
+ * Control flow between the threads that take part in a GC on SubstrateVM
+ * ========================================================================
+ *
+ *   J  Java application threads (mutators). Allocate, execute barriers, stop at safepoints.
+ *   V  SubstrateVM VM operation thread. A Java thread that executes all VM operations,
+ *      including the GC STW operations of Shenandoah. It holds the VM operation queue mutex M
+ *      for the whole execution of a VM operation and is the only thread that starts safepoints. It
+ *      can allocate (and fail to allocate) in the Java heap inside non-GC VM operations.
+ *   C  Shenandoah Control thread (native, not attached). The only thread that drives GC cycles.
+ *   W  Native Shenandoah GC worker threads. They run the parallel parts of the concurrent phases
+ *      (joined to the SuspendibleThreadSet, STS) and the STW operations (WorkerThreads::run_task()).
+ *
+ * Every SVM safepoint synchronizes the STS (see ShenandoahHeap::safepoint_synchronize_begin()), so W
+ * is suspended in its concurrent phases until the safepoint ends. C itself is not part of the STS.
+ *
+ * 1. A STW operation of a cycle (init/final mark, init/final update refs, final roots,
+ *    degenerated GC, full GC, handshake fallback) while V is idle. See VMThread::execute()
+ *    and NativeGCVMOperationSupport / ShenandoahVMOperations on the SVM side.
+ *
+ *    C                                    V                                   J, W
+ *    | VMThread::execute(op)              | waits for work (M released)       |
+ *    |-- tryEnqueue (try-lock M) -------->|                                   |
+ *    | wait for EXECUTE_PROLOGUE          | wrapper operation:                |
+ *    |<-----------------------------------| status EXECUTE_PROLOGUE, wait     |
+ *    | doit_prologue() (Heap_lock)        |                                   |
+ *    |-- status EXECUTE_VM_OPERATION ---->| start safepoint ----------------->| J stop, W suspended
+ *    | wait for ADJUST_THREAD_STATUS      | op->doit() (parallel parts in W)  |
+ *    |                                    | end safepoint ------------------->| J, W resume
+ *    |<-----------------------------------| status ADJUST_THREAD_STATUS, wait |
+ *    |-- status FINISHED ---------------->| wrapper finished                  |
+ *    | doit_epilogue(), wait for finished |                                   |
+ *
+ *    If V executes another VM operation (holds M), the try-lock fails and C waits up to 1 ms
+ *    before it tries again (case 5 is the exception). C never blocks on M.
+ *
+ * 2. Allocation failure of J (handle_alloc_failure()): J cancels the cycle, requests a GC and blocks
+ *    on _alloc_failure_waiters_lock. C sees the cancellation, the concurrent phase unwinds (W bail
+ *    out), C runs a degenerated or full GC (case 1) and notifies J, which retries the allocation.
+ *
+ * 3. Explicit GC from J (e.g. System.gc()): J requests a GC and blocks on _gc_waiters_lock until a
+ *    complete cycle ran (handle_requested_gc()). C runs the cycle (case 1 for each of its STW operations).
+ *
+ * 4. Explicit GC from V (e.g. System.gc() inside a VM operation): V only records the request
+ *    (svm_record_gc_request()) and returns without waiting, because the STW operations need V. C runs the
+ *    cycle after V finished its VM operation.
+ *
+ * 5. Allocation failure of V inside a VM operation (svm_handle_alloc_failure_on_vm_thread()): V
+ *    cancels the cycle and requests a GC like J. It can't block like J, because only V can execute
+ *    the STW operations C needs, and C can't even queue them while V holds M. So V waits in a loop
+ *    and executes the operations that C hands over:
+ *
+ *    C                                    V                                   J, W
+ *    | concurrent phase (in W)            | VM operation, allocation fails    |
+ *    |                                    | cancel_gc(), request_gc()         |
+ *    |                                    | [STS desynchronize] ------------->| W resume, J stay stopped
+ *    | sees the cancellation,             | wait for a hand-over (1 ms)       |
+ *    | phase unwinds (W bail out)         |   ... check cancellation, wait    |
+ *    | VMThread::execute(degenerated op)  |                                   |
+ *    | tryEnqueue fails (V holds M)       |                                   |
+ *    |-- hand over (V waits) ------------>| [STS synchronize] --------------->| W suspended
+ *    | prologue / epilogue as in case 1   | wrapper operation as in case 1,   |
+ *    |                                    | at V's current safepoint or at a  |
+ *    |                                    | new one. The degenerated (or full)|
+ *    |                                    | GC clears the cancellation.       |
+ *    |                                    | [STS desynchronize] ------------->| W resume
+ *    | notifies waiting threads           | loop ends: allocation failure was |
+ *    |                                    | handled                           |
+ *    |                                    | [STS synchronize] --------------->| W suspended
+ *    |                                    | retry the allocation              |
+ *
+ *    The steps in [...] only happen if V executes its VM operation at a safepoint. That safepoint
+ *    suspended W, so the cancelled phase could not unwind and C would never reach the operation it
+ *    hands over. C must not wait for anything else that V's safepoint holds; e.g. C changes the
+ *    gc state concurrently without a lock (see ShenandoahHeap::set_gc_state_concurrent()).
+ *    Handshakes that C needs before it reaches its degenerated GC are handed over the same way.
+ *    A full GC that a degenerated GC upgrades to is just another handed-over operation.
+ *
+ * 6. Allocation failure of V inside a GC STW operation: not allowed (guarantee()). C waits for this
+ *    very operation, and the code inside it is uninterruptible and does not allocate in the heap.
+ *
+ * 7. Evacuation failure of any thread (handle_alloc_failure_evac()): cancels the cycle without
+ *    blocking. C continues with a degenerated GC as in case 2.
+ */
+#endif // SVM
 
 /**
  * This interface exposes methods necessary for the heap to interact
@@ -64,12 +150,7 @@ public:
     _allocs_seen(0),
     _gc_id(0),
     _alloc_failure_waiters_lock(WAITERS_LOCK_RANK, "ShenandoahAllocFailureWaiters_lock", true),
-    _gc_waiters_lock(WAITERS_LOCK_RANK, "ShenandoahGCWaiters_lock", true),
-#ifdef SVM
-    _svm_cycle_state(SVM_CYCLE_IDLE),
-    _svm_inline_gc_count(0),
-    _svm_pending_waiter_notify(0)
-#endif // SVM
+    _gc_waiters_lock(WAITERS_LOCK_RANK, "ShenandoahGCWaiters_lock", true)
   { }
 
   // Request a collection cycle. This handles "explicit" gc requests
@@ -87,87 +168,18 @@ public:
   // Notify threads waiting for GC to complete.
   void notify_alloc_failure_waiters();
 #ifdef SVM
-  // Try-lock variant for the VM operation thread, which may run at a safepoint. Blocking on the
-  // '_alloc_failure_waiters_lock' monitor can deadlock because a mutator at a safepoint can hold
-  // the monitor's mutex across its native->VM transition.
-  bool try_notify_alloc_failure_waiters();
+  // In SVM, the VM operation thread is a Java thread that can allocate (and fail to allocate) while
+  // it executes a VM operation. It handles an allocation failure like a mutator: it cancels the cycle,
+  // requests a GC from the Control thread and waits until the allocation failure was handled. Only the
+  // Control thread drives GC cycles, but their STW operations can only be executed by the VM operation
+  // thread, so while it waits, the VM thread executes the GC operations the Control thread hands over
+  // to it as nested VM operations.
+  void svm_handle_alloc_failure_on_vm_thread(const ShenandoahAllocRequest& req, GCCause::Cause cause, bool block);
 
-  // Blocking notification of GC waiters, implemented by the concrete control threads.
-  // Declared here for SVM such that svm_drain_pending_waiter_notifications() can deliver
-  // deferred notifications.
-  virtual void notify_gc_waiters() = 0;
-
-  // Try-lock variant of notify_gc_waiters() (see try_notify_alloc_failure_waiters()).
-  virtual bool try_notify_gc_waiters() = 0;
-
-  // Runs a STW GC directly on the VM operation thread. In SVM the VM
-  // operation thread is a Java thread that can allocate and therefore trigger
-  // a GC while executing a VM operation. Because a STW GC is itself a VM
-  // operation that must run on the VM operation thread, such a GC cannot be
-  // delegated to the control thread which might be blocked waiting for the
-  // VM thread. Instead the GC is executed inline and synchronously. This is
-  // the shared skeleton, the mode-specific cycle is run by svm_run_inline_gc_cycle().
-  void run_gc_on_vm_thread(GCCause::Cause cause);
-
-  // Runs the mode-specific STW cycle of an inline GC.
-  virtual void svm_run_inline_gc_cycle(GCCause::Cause cause) = 0;
-
-  /*
-   * All states of the single logical GC in one variable. A plain atomic is used rather than a Mutex
-   * because the Control thread must hold the CONTROL states across code that acquires the Heap_lock
-   * with rank safepoint inside VM_ShenandoahReferenceOperation::doit_prologue(), which no Mutex rank
-   * above all in-cycle locks can express.
-   *
-   *                (control thread runs a cycle)
-   *   IDLE <-------------------------------------------> CONTROL
-   *    ^
-   *    | (VM operation thread runs a GC inline for itself, only possible while no
-   *    v  Control thread cycle is in flight, see run_gc_on_vm_thread())
-   *   VM_INLINE
-   */
-  enum SVMCycleState {
-    SVM_CYCLE_IDLE,      // no cycle
-    SVM_CYCLE_CONTROL,   // a Control thread owns the cycle
-    SVM_CYCLE_VM_INLINE  // the VM operation thread runs a GC inline for itself
-  };
-  volatile SVMCycleState _svm_cycle_state;
-
-  // Incremented for every completed inline GC before the state leaves VM_INLINE. A change
-  // invalidates a cycle decision computed before: the inline GC cleared the cancellation and reset
-  // the marking state (see run_service() and ShenandoahDegenGC::op_degenerated()).
-  volatile size_t _svm_inline_gc_count;
-
-  // Set when an inline GC on the VM operation thread could not deliver a waiter notification
-  // (see try_notify_{gc,alloc_failure}_waiters()). Drained by the Control thread, which can
-  // safely block on the waiter monitors.
-  volatile int _svm_pending_waiter_notify;
-
-  friend class ShenandoahSVMCycleOwnershipMark;
-
-  // Cycle ownership for a Control thread (used via ShenandoahSVMCycleOwnershipMark). The acquisition
-  // wait is bounded because the only other owner is the VM operation thread running an inline STW GC.
-  void svm_acquire_cycle_ownership();
-  void svm_release_cycle_ownership();
-
-  // True if the VM operation thread currently runs an inline GC.
-  bool svm_inline_gc_in_progress() const;
-
-  // Called by the VM thread to publish an inline GC's completion and leave the VM_INLINE state.
-  void svm_finish_inline_gc();
-
-  // Number of inline GCs the VM operation thread has completed. A change invalidates a cycle
-  // decision that was computed before, see ShenandoahDegenGC::op_degenerated().
-  size_t svm_inline_gc_count() const { return Atomic::load(&_svm_inline_gc_count); }
-
-  // Hands a GC request that cannot run inline on the VM thread to the Control thread.
-  void svm_defer_gc_request(GCCause::Cause cause);
-
-  // Delivers any notification an inline GC had to defer while running on the VM thread.
-  void svm_drain_pending_waiter_notifications();
-
-  // Records a GC request for the Control thread WITHOUT waiting for it  because waiting is not
-  // allowed on the VM thread. The generational Control thread also needs a generation recorded
-  // here, hence the per-controller implementation.
+  // Records a GC request of the VM operation thread for the Control thread without waiting for it,
+  // like HotSpot does for GC requests of its VM thread (see CollectedHeap::collect_as_vm_thread()).
+  // The generational Control thread also needs a generation recorded here, hence the per-controller
+  // implementation.
   virtual void svm_record_gc_request(GCCause::Cause cause) = 0;
 #endif // SVM
 
@@ -182,21 +194,6 @@ public:
   // Return the value of a monotonic increasing GC count, maintained by the control thread.
   size_t get_gc_id();
 };
-
-
-#ifdef SVM
-// The Control thread owns the single logical GC for the duration of a full cycle.
-class ShenandoahSVMCycleOwnershipMark : public StackObj {
-  ShenandoahController* const _controller;
-public:
-  ShenandoahSVMCycleOwnershipMark(ShenandoahController* controller) : _controller(controller) {
-    _controller->svm_acquire_cycle_ownership();
-  }
-  ~ShenandoahSVMCycleOwnershipMark() {
-    _controller->svm_release_cycle_ownership();
-  }
-};
-#endif // SVM
 
 } // namespace svm_gc
 

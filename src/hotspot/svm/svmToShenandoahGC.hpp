@@ -67,12 +67,11 @@ extern "C" {
       char *offsets, int offsets_length,
       queueVmOperationFunc collect_for_allocation_op, queueVmOperationFunc collect_full_op, queueVmOperationFunc collect_degenerated_op, queueVmOperationFunc init_mark_op, queueVmOperationFunc final_mark_op, queueVmOperationFunc init_update_refs_op, queueVmOperationFunc final_update_refs_op, queueVmOperationFunc final_roots_op, queueVmOperationFunc handshake_fallback_op,
       vmOperationStatusFunc wait_for_vm_operation_execution_status, vmOperationStatusFunc update_vm_operation_execution_status, vmOperationDataFunc is_vm_operation_finished,
-      yieldToQueuedVmOperationsFunc yield_to_queued_vm_operations,
+      waitForHandedOverGCOperationFunc wait_for_handed_over_gc_operation, executeHandedOverGCOperationFunc execute_handed_over_gc_operation,
       fetchThreadStackFramesFunc fetch_thread_stack_frames, freeThreadStackFramesFunc free_thread_stack_frames,
       fetchContinuationStackFramesFunc fetch_continuation_stack_frames, freeContinuationStackFramesFunc free_continuation_stack_frames,
       fetchCodeInfosFunc fetch_code_infos, freeCodeInfosFunc free_code_infos, cleanRuntimeCodeCacheFunc clean_runtime_code_cache,
-      threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm,
-      threadsLockFunc lock_threads_read, threadsLockFunc unlock_threads_read);
+      threadStateTransitionFunc transition_vm_to_native, fastThreadStateTransitionFunc fast_transition_native_to_vm, threadStateTransitionFunc slow_transition_native_to_vm);
 
   EXPORT_FOR_SVM void svm_gc_update_long_option_value(oop optionName, jlong value);
 

@@ -66,19 +66,9 @@ void ShenandoahGenerationalControlThread::run_service() {
   const int64_t wait_ms = ShenandoahPacing ? ShenandoahControlIntervalMin : 0;
   ShenandoahGCRequest request;
   while (!should_terminate()) {
-#ifdef SVM
-    // Deliver notifications an inline GC on the VM operation thread had to defer.
-    svm_drain_pending_waiter_notifications();
-#endif // SVM
 
     // This control loop iteration has seen this much allocation.
     const size_t allocs_seen = reset_allocs_seen();
-
-    // Snapshot before the decision below, so run_gc_cycle() can detect an inline GC that ran in
-    // between and invalidated it.
-#ifdef SVM
-    const size_t svm_inline_gc_count_at_decision = Atomic::load(&_svm_inline_gc_count);
-#endif // SVM
 
     // Figure out if we have pending requests.
     check_for_request(request);
@@ -88,7 +78,7 @@ void ShenandoahGenerationalControlThread::run_service() {
     }
 
     if (request.cause != GCCause::_no_gc) {
-      run_gc_cycle(request SVM_ONLY(COMMA svm_inline_gc_count_at_decision));
+      run_gc_cycle(request);
     } else {
       // Report to pacer that we have seen this many words allocated
 #ifndef SVM
@@ -250,7 +240,7 @@ void ShenandoahGenerationalControlThread::maybe_set_aging_cycle() {
   }
 }
 
-void ShenandoahGenerationalControlThread::run_gc_cycle(const ShenandoahGCRequest& request SVM_ONLY(COMMA size_t svm_inline_gc_count_at_decision)) {
+void ShenandoahGenerationalControlThread::run_gc_cycle(const ShenandoahGCRequest& request) {
 
   log_debug(gc, thread)("Starting GC (%s): %s, %s", gc_mode_name(gc_mode()), GCCause::to_string(request.cause), request.generation->name());
   assert(gc_mode() != none, "GC mode cannot be none here");
@@ -280,25 +270,6 @@ void ShenandoahGenerationalControlThread::run_gc_cycle(const ShenandoahGCRequest
   _heap->free_set()->log_status_under_lock();
 
   {
-#ifdef SVM
-    // Own the logical GC for the whole cycle. The VM operation thread try-acquires the same
-    // token before running a GC inline for itself (see run_gc_on_vm_thread()), which would
-    // otherwise overlap this cycle's GC state and phase tracking.
-    ShenandoahSVMCycleOwnershipMark svm_cycle_ownership(this);
-    if (Atomic::load(&_svm_inline_gc_count) != svm_inline_gc_count_at_decision) {
-      // An inline GC ran on the VM operation thread between the decision in check_for_request()
-      // and the ownership acquisition above. The decision inputs are stale: the inline GC cleared
-      // the cancellation and reset the marking state. Abandon this cycle, the control loop re-evaluates
-      // from scratch, and the inline GC has already collected.
-      log_info(gc)("Cycle decision invalidated by an inline GC on the VM operation thread, re-evaluating");
-      // Restore the decision state like a completed cycle does (see service_stw_full_cycle() and
-      // service_stw_degenerated_cycle()) because the degeneration point recorded for the abandoned
-      // decision must not leak into the next one, which asserts that it starts out unset.
-      _degen_point = ShenandoahGC::_degenerated_unset;
-      return;
-    }
-#endif // SVM
-
     // Cannot uncommit bitmap slices during concurrent reset
     ShenandoahNoUncommitMark forbid_region_uncommit(_heap);
 
@@ -653,29 +624,10 @@ void ShenandoahGenerationalControlThread::service_stw_full_cycle(GCCause::Cause 
   maybe_set_aging_cycle();
   ShenandoahFullGC gc;
   gc.collect(cause);
-#ifdef SVM
-  if (Thread::current()->is_VM_thread()) {
-    // The VM operation thread runs this cycle inline for itself, see run_gc_on_vm_thread(). It must
-    // not touch _degen_point because that field records where this Control thread's cycle was cancelled.
-    // It is owned and mutated by the Control thread, and resetting it here would race with the Control
-    // thread's cycle decision which asserts that the point is set once it decided to degenerate.
-    return;
-  }
-#endif // SVM
   _degen_point = ShenandoahGC::_degenerated_unset;
 }
 
 void ShenandoahGenerationalControlThread::service_stw_degenerated_cycle(const ShenandoahGCRequest& request) {
-#ifdef SVM
-  if (_degen_point == ShenandoahGC::_degenerated_unset) {
-    // A GC that the VM operation thread ran inline for itself completed the collection this cycle was
-    // planned for, and cleared the degeneration point (see service_stw_full_cycle()). Resuming from
-    // the point that was planned is not possible any more, but this cycle still has to run so that
-    // the cycle bookkeeping (session, generation states).
-    log_info(gc)("Degenerating from outside the cycle: a GC ran inline on the VM operation thread");
-    _degen_point = ShenandoahGC::_degenerated_outside_cycle;
-  }
-#endif // SVM
   assert(_degen_point != ShenandoahGC::_degenerated_unset, "Degenerated point should be set");
 
   ShenandoahGCSession session(request.cause, request.generation);
@@ -795,14 +747,10 @@ void ShenandoahGenerationalControlThread::handle_requested_gc(GCCause::Cause cau
 #ifdef SVM
   if (Thread::current()->is_VM_thread()) {
     // The VM operation thread requested a GC (e.g. System.gc() invoked from within a VM operation).
-    // It must not wait for this control thread because a STW GC is itself a VM operation that only
-    // the VM thread can execute, so waiting here deadlocks. Hand the request over and return
+    // It must not wait for the Control thread because a STW GC is itself a VM operation that only
+    // the VM thread can execute, so waiting here deadlocks. Only record the request and return
     // without waiting, which is also how stock HotSpot treats GC requests from the VM thread (see
-    // CollectedHeap::collect_as_vm_thread()). Unlike the non-generational mode we do not run the
-    // cycle inline here because a generational cycle carries state that belongs to this Control
-    // thread (e.g. young/old generation state machine, mark completeness, degeneration point), which
-    // an inline cycle on another thread would corrupt. Allocation failures on the VM operation thread
-    // still run a GC inline, see ShenandoahController::handle_alloc_failure().
+    // CollectedHeap::collect_as_vm_thread()).
     svm_record_gc_request(cause);
     return;
   }
@@ -868,32 +816,6 @@ void ShenandoahGenerationalControlThread::svm_record_gc_request(GCCause::Cause c
   // handle_requested_gc() itself here, because it waits for the cycle to complete and this runs on
   // the VM operation thread, which must never block on the Control thread.
   notify_control_thread(cause, _heap->global_generation());
-}
-
-bool ShenandoahGenerationalControlThread::try_notify_gc_waiters() {
-  if (!_gc_waiters_lock.try_lock()) {
-    return false;
-  }
-  _gc_waiters_lock.notify_all();
-  _gc_waiters_lock.unlock();
-  return true;
-}
-
-void ShenandoahGenerationalControlThread::svm_run_inline_gc_cycle(GCCause::Cause cause) {
-  // Run a full STW collection which satisfies both allocation failures and explicit requests, and
-  // unlike a degenerated cycle it does not depend on the state of a (possibly unrelated) concurrent
-  // cycle this thread is not resuming. service_stw_full_cycle() creates the ShenandoahGCSession
-  // itself, like in the concurrent paths of this Control thread.
-  _heap->heuristics()->log_trigger("GC request (%s) on the SVM operation thread", GCCause::to_string(cause));
-  if (ShenandoahCollectorPolicy::is_allocation_failure(cause)) {
-    _heap->heuristics()->record_allocation_failure_gc();
-    _heap->shenandoah_policy()->record_alloc_failure_to_full();
-  } else {
-    _heap->heuristics()->record_requested_gc();
-  }
-  // Blow all soft references: this is a last-resort GC.
-  _heap->soft_ref_policy()->set_should_clear_all_soft_refs(true);
-  service_stw_full_cycle(cause);
 }
 #endif // SVM
 

@@ -26,7 +26,6 @@
 
 #include "gc/shared/collectorCounters.hpp"
 #include "gc/shenandoah/shenandoahCollectorPolicy.hpp"
-#include "gc/shenandoah/shenandoahController.hpp"
 #include "gc/shenandoah/shenandoahConcurrentMark.hpp"
 #include "gc/shenandoah/shenandoahDegeneratedGC.hpp"
 #include "gc/shenandoah/shenandoahFullGC.hpp"
@@ -51,15 +50,12 @@ namespace svm_gc {
 ShenandoahDegenGC::ShenandoahDegenGC(ShenandoahDegenPoint degen_point, ShenandoahGeneration* generation) :
   ShenandoahGC(),
   _degen_point(degen_point),
-#ifdef SVM
-  _svm_inline_gc_count_when_planned(ShenandoahHeap::heap()->control_thread()->svm_inline_gc_count()),
-#endif // SVM
   _generation(generation),
   _abbreviated(false) {
 }
 
 bool ShenandoahDegenGC::collect(GCCause::Cause cause) {
-  vmop_degenerated(cause);
+  vmop_degenerated();
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (heap->mode()->is_generational()) {
     bool is_bootstrap_gc = heap->old_generation()->is_bootstrapping();
@@ -70,12 +66,12 @@ bool ShenandoahDegenGC::collect(GCCause::Cause cause) {
   return true;
 }
 
-void ShenandoahDegenGC::vmop_degenerated(GCCause::Cause cause) {
-  NOT_SVM(TraceCollectorStats tcs(ShenandoahHeap::heap()->monitoring_support()->full_stw_collection_counters());)
-  // For SVM the gross-timing tracker is created inside VM_ShenandoahDegeneratedGC::doit()
-  // so it runs on the single VM operation thread (see VM_ShenandoahFullGC::vmop_entry_full).
-  NOT_SVM(ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::degen_gc_gross);)
-  VM_ShenandoahDegeneratedGC degenerated_gc(this SVM_ONLY(COMMA cause));
+void ShenandoahDegenGC::vmop_degenerated() {
+#ifndef SVM
+  TraceCollectorStats tcs(ShenandoahHeap::heap()->monitoring_support()->full_stw_collection_counters());
+#endif // !SVM
+  ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::degen_gc_gross);
+  VM_ShenandoahDegeneratedGC degenerated_gc(this);
   VMThread::execute(&degenerated_gc);
 }
 
@@ -103,20 +99,6 @@ void ShenandoahDegenGC::op_degenerated() {
   // GC failure via cancelled_concgc() flag. So, if we detect the failure after
   // some phase, we have to upgrade the Degenerate GC to Full GC.
   heap->clear_cancelled_gc();
-
-#ifdef SVM
-  if (heap->control_thread()->svm_inline_gc_count() != _svm_inline_gc_count_when_planned) {
-    // The VM operation thread ran a GC inline for itself after this cycle was planned (it can do so
-    // while the Control thread waits for this very operation, see
-    // ShenandoahSVMParkedForVMOperationMark). The state this cycle would resume from like mark
-    // completeness, evacuation state and the degeneration point itself is therefore stale. A full GC
-    // does not depend on any of it, so upgrade, which is what a degenerated cycle does anyway whenever
-    // it cannot proceed (see op_degenerated_futile()).
-    log_info(gc)("Upgrading degenerated GC to full GC: an inline GC ran on the VM operation thread");
-    upgrade_to_full();
-    return;
-  }
-#endif // SVM
 
 #ifdef ASSERT
   if (heap->mode()->is_generational()) {

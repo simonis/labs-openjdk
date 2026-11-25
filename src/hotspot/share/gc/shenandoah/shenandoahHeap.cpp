@@ -712,10 +712,8 @@ void ShenandoahHeap::post_initialize() {
 #ifndef SVM
   MutexLocker ml(Threads_lock);
 #else
-  // Do NOT use ShenandoahThreadsLocker here: post_initialize runs during isolate creation, while
-  // the first thread still holds the SVM ThreadsLock with write access (see ShenandoahHeap.java,
-  // "Only the first thread may initialize the heap"). Acquiring read access here would deadlock.
-  // That write access already provides the mutual exclusion the Threads_lock provides on HotSpot.
+  // No lock is needed here because post_initialize() runs during isolate creation, while the
+  // first thread still holds the SVM ThreadsLock with write access (see ShenandoahHeap.java).
 #endif
 
   ShenandoahInitWorkerGCLABClosure init_gclabs;
@@ -1132,14 +1130,14 @@ HeapWord* ShenandoahHeap::allocate_memory(ShenandoahAllocRequest& req) {
 inline bool ShenandoahHeap::should_retry_allocation(size_t original_full_gc_count) const {
 #ifdef SVM
   // In SVM the VM operation thread is a regular Java thread that allocates inside VM operations, and
-  // an OutOfMemoryError there is fatal (VM operations must not throw). Its allocation failure runs a
-  // full GC inline (see ShenandoahController::run_gc_on_vm_thread()), but by the time the VM operation
-  // thread retries, other threads that allocate at full speed may have refilled the heap the GC just
-  // freed - under CPU contention this race is lost regularly with small heaps. The HotSpot rule
+  // an OutOfMemoryError there is fatal (VM operations must not throw). Its allocation failure is handled
+  // by a GC from the Control thread (see ShenandoahController::svm_handle_alloc_failure_on_vm_thread()).
+  // However, if the VM operation does not run at a safepoint, other threads that allocate at full speed may
+  // have refilled the heap the GC just freed by the time the VM operation thread retries. The HotSpot rule
   // "give up after one full GC" would then turn a lost race into a fatal error, although the heap is
-  // not exhausted. So the VM operation thread keeps retrying as long as the full GCs since it started
-  // waiting made good progress (a genuinely exhausted heap reports no progress and fails exactly as
-  // before), bounded by ShenandoahNoProgressThreshold full GCs. Mutators keep the HotSpot policy.
+  // not exhausted. So the VM operation thread keeps retrying as long as the full GCs, which are started since
+  // the VM thread is waiting, make good progress. A genuinely exhausted heap reports no progress and fails
+  // exactly as before, bounded by 'ShenandoahNoProgressThreshold' full GCs.
   if (Thread::current()->is_VM_thread()) {
     const size_t full_gcs = shenandoah_policy()->full_gc_count() - original_full_gc_count;
     return (full_gcs == 0 || (full_gcs <= ShenandoahNoProgressThreshold && get_gc_no_progress_count() == 0))
@@ -1382,9 +1380,7 @@ void ShenandoahHeap::concurrent_prepare_for_update_refs() {
     // by the following handshake.
     MutexLocker lock(Threads_lock);
 #else
-    // On SVM, ShenandoahThreadsLocker holds the SVM ThreadsLock (read access), which attaching
-    // threads hold with write access, giving the same mutual exclusion.
-    ShenandoahThreadsLocker lock;
+    // On SVM no lock is needed, see set_gc_state_concurrent().
 #endif // !SVM
 
     // A cancellation at this point means the degenerated cycle must resume from update-refs.
@@ -1439,7 +1435,7 @@ void ShenandoahHeap::concurrent_final_roots(HandshakeClosure* handshake_closure)
 #ifndef SVM
     MutexLocker lock(Threads_lock);
 #else
-    ShenandoahThreadsLocker lock;
+    // On SVM no lock is needed, see set_gc_state_concurrent().
 #endif // !SVM
     set_gc_state_concurrent(WEAK_ROOTS, false);
   }
@@ -2470,9 +2466,16 @@ void ShenandoahHeap::set_gc_state_concurrent(uint mask, bool value) {
 #ifndef SVM
   assert(Threads_lock->is_locked(), "Must hold thread lock for concurrent gc state change");
 #else
-  // On SVM the caller must hold the SVM ThreadsLock with read access (via ShenandoahThreadsLocker),
-  // which excludes attaching threads (they hold write access) in the same way. This cannot be
-  // asserted here because the unspecified-owner read access does not track ownership.
+  // On SVM the same guarantees hold without a lock:
+  // - An attaching thread adds itself to the thread list before it reads the global gc state in
+  //   on_thread_attach(), and it does both while it holds the SVM ThreadsLock with write access.
+  // - Every concurrent gc state change is followed by a handshake, which on SVM is a VM operation
+  //   at a safepoint (see Handshake::execute()). Starting a safepoint requires the same write access,
+  //   so the handshake starts after the attaching thread is in the thread list, and it updates the
+  //   thread-local gc state of all threads in the list.
+  // So an attaching thread that reads a stale or partially updated gc state is corrected by the
+  // handshake, like all established threads, which also use their stale copy until then. A thread
+  // that reads the gc state after the handshake started reads the final value.
 #endif // !SVM
   _gc_state.set_cond(mask, value);
 }

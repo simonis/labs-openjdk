@@ -42,18 +42,16 @@ class VMThread {
   static VM_Operation* _cur_vm_operation; // Current VM operation
 
  public:
-  // Returns the current vm operation if any.
+  // Returns the current native VM operation if any. It is only set for native GC operations
+  // (see VM_Operation) and null while the VM thread executes any other VM operation.
   static VM_Operation* vm_operation()             {
     assert(Thread::current()->is_VM_thread(), "Must be");
     return _cur_vm_operation;
   }
 
-  // Sets the currently executing VM operation and returns the previous one.
+  // Sets the currently executing native VM GC operation and returns the previous one.
   // Must only be called on the VM operation thread, around the actual execution
-  // of the operation (see svm_gc_execute_vm_operation_main). Using save/restore
-  // here (instead of in VMThread::execute, which may run on a queuing thread)
-  // keeps _cur_vm_operation correct even when the VM operation thread executes a
-  // nested VM operation (e.g. a GC triggered by an allocation failure).
+  // of the operation (see svm_gc_execute_vm_operation_main()).
   static VM_Operation* set_current_vm_operation(VM_Operation* op) {
     assert(Thread::current()->is_VM_thread(), "Must be");
     VM_Operation* prev = _cur_vm_operation;

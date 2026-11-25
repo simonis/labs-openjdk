@@ -36,11 +36,6 @@ class ShenandoahDegenGC : public ShenandoahGC {
   friend class VM_ShenandoahDegeneratedGC;
 private:
   const ShenandoahDegenPoint  _degen_point;
-#ifdef SVM
-  // The number of inline GCs on the VM operation thread when this cycle was planned,
-  // see op_degenerated().
-  const size_t _svm_inline_gc_count_when_planned;
-#endif // SVM
   ShenandoahGeneration* _generation;
   bool _abbreviated;
 
@@ -49,7 +44,7 @@ public:
   bool collect(GCCause::Cause cause);
 
 private:
-  void vmop_degenerated(GCCause::Cause cause);
+  void vmop_degenerated();
   void entry_degenerated();
   void op_degenerated();
 

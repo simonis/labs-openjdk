@@ -107,7 +107,7 @@ ShenandoahGC::ShenandoahDegenPoint ShenandoahConcurrentGC::degen_point() const {
 }
 
 void ShenandoahConcurrentGC::entry_concurrent_update_refs_prepare(ShenandoahHeap* const heap) {
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   const char* msg = conc_init_update_refs_event_message();
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_update_refs_prepare);
   EventMark em("%s", msg);
@@ -302,7 +302,7 @@ bool ShenandoahConcurrentGC::complete_abbreviated_cycle() {
 
 void ShenandoahConcurrentGC::vmop_entry_init_mark() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
   ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::init_mark_gross);
 
   heap->try_inject_alloc_failure();
@@ -312,7 +312,7 @@ void ShenandoahConcurrentGC::vmop_entry_init_mark() {
 
 void ShenandoahConcurrentGC::vmop_entry_final_mark() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
   ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::final_mark_gross);
 
   heap->try_inject_alloc_failure();
@@ -322,7 +322,7 @@ void ShenandoahConcurrentGC::vmop_entry_final_mark() {
 
 void ShenandoahConcurrentGC::vmop_entry_init_update_refs() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
   ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::init_update_refs_gross);
 
   heap->try_inject_alloc_failure();
@@ -332,7 +332,7 @@ void ShenandoahConcurrentGC::vmop_entry_init_update_refs() {
 
 void ShenandoahConcurrentGC::vmop_entry_final_update_refs() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
   ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::final_update_refs_gross);
 
   heap->try_inject_alloc_failure();
@@ -342,7 +342,7 @@ void ShenandoahConcurrentGC::vmop_entry_final_update_refs() {
 
 void ShenandoahConcurrentGC::vmop_entry_verify_final_roots() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
   ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::final_roots_gross);
 
   // This phase does not use workers, no need for setup
@@ -408,7 +408,7 @@ void ShenandoahConcurrentGC::entry_reset() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
   heap->try_inject_alloc_failure();
 
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   {
     const char* msg = conc_reset_event_message();
     ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_reset);
@@ -424,7 +424,7 @@ void ShenandoahConcurrentGC::entry_reset() {
 void ShenandoahConcurrentGC::entry_scan_remembered_set() {
   if (_generation->is_young()) {
     ShenandoahHeap* const heap = ShenandoahHeap::heap();
-    NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+    TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
     const char* msg = "Concurrent remembered set scanning";
     ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::init_scan_rset);
     EventMark em("%s", msg);
@@ -440,7 +440,7 @@ void ShenandoahConcurrentGC::entry_scan_remembered_set() {
 
 void ShenandoahConcurrentGC::entry_mark_roots() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   const char* msg = "Concurrent marking roots";
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_mark_roots);
   EventMark em("%s", msg);
@@ -455,7 +455,7 @@ void ShenandoahConcurrentGC::entry_mark_roots() {
 
 void ShenandoahConcurrentGC::entry_mark() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   const char* msg = conc_mark_event_message();
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_mark);
   EventMark em("%s", msg);
@@ -498,7 +498,7 @@ void ShenandoahConcurrentGC::entry_weak_refs() {
 
 void ShenandoahConcurrentGC::entry_weak_roots() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   const char* msg = conc_weak_roots_event_message();
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_weak_roots);
   EventMark em("%s", msg);
@@ -513,7 +513,7 @@ void ShenandoahConcurrentGC::entry_weak_roots() {
 
 void ShenandoahConcurrentGC::entry_class_unloading() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   static const char* msg = "Concurrent class unloading";
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_class_unload);
   EventMark em("%s", msg);
@@ -528,7 +528,7 @@ void ShenandoahConcurrentGC::entry_class_unloading() {
 
 void ShenandoahConcurrentGC::entry_strong_roots() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   static const char* msg = "Concurrent strong roots";
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_strong_roots);
   EventMark em("%s", msg);
@@ -545,7 +545,7 @@ void ShenandoahConcurrentGC::entry_strong_roots() {
 
 void ShenandoahConcurrentGC::entry_cleanup_early() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   const char* msg = conc_cleanup_event_message();
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_cleanup_early, true /* log_heap_usage */);
   EventMark em("%s", msg);
@@ -557,7 +557,7 @@ void ShenandoahConcurrentGC::entry_cleanup_early() {
 
 void ShenandoahConcurrentGC::entry_evacuate() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
 
   static const char* msg = "Concurrent evacuation";
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_evac);
@@ -583,7 +583,7 @@ void ShenandoahConcurrentGC::entry_promote_in_place() const {
 
 void ShenandoahConcurrentGC::entry_update_thread_roots() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
 
   static const char* msg = "Concurrent update thread roots";
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_update_thread_roots);
@@ -596,7 +596,7 @@ void ShenandoahConcurrentGC::entry_update_thread_roots() {
 
 void ShenandoahConcurrentGC::entry_update_refs() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   static const char* msg = "Concurrent update references";
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_update_refs);
   EventMark em("%s", msg);
@@ -611,7 +611,7 @@ void ShenandoahConcurrentGC::entry_update_refs() {
 
 void ShenandoahConcurrentGC::entry_cleanup_complete() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   const char* msg = conc_cleanup_event_message();
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_cleanup_complete, true /* log_heap_usage */);
   EventMark em("%s", msg);
@@ -623,7 +623,7 @@ void ShenandoahConcurrentGC::entry_cleanup_complete() {
 
 void ShenandoahConcurrentGC::entry_reset_after_collect() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   const char* msg = conc_reset_after_collect_event_message();
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_reset_after_collect);
   EventMark em("%s", msg);
@@ -1418,7 +1418,7 @@ void ShenandoahConcurrentGC::op_final_update_refs() {
 
 bool ShenandoahConcurrentGC::entry_final_roots() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
 
 
   const char* msg = conc_final_roots_event_message();

@@ -62,7 +62,7 @@ extern "C" {
       Klass *dynamic_hub_klass, InstanceKlass *filler_object_klass, TypeArrayKlass *filler_array_klass, Klass *string_klass, Klass *system_klass,
       objArrayOop static_object_fields, typeArrayOop static_primitive_fields, oop vm_operation_thread, oop safepoint, oop runtime_code_info_memory,
       int reference_map_compressed_offset_shift, SVMOopMap *thread_locals_reference_map,
-      objArrayOop klasses_assumed_reachable_for_code_unloading, bool perf_data_support, bool closed_type_world,
+      objArrayOop klasses_assumed_reachable_for_code_unloading, oop performance_data, bool closed_type_world,
       bool use_interface_hashing, int interface_hashing_max_id, int dynamic_hub_hashing_interface_mask, int dynamic_hub_hashing_shift_offset,
       char *offsets, int offsets_length,
       queueVmOperationFunc collect_for_allocation_op, queueVmOperationFunc collect_full_op, queueVmOperationFunc collect_degenerated_op, queueVmOperationFunc init_mark_op, queueVmOperationFunc final_mark_op, queueVmOperationFunc init_update_refs_op, queueVmOperationFunc final_update_refs_op, queueVmOperationFunc final_roots_op, queueVmOperationFunc handshake_fallback_op,

@@ -373,8 +373,8 @@ G1MonitoringScope::G1MonitoringScope(G1MonitoringSupport* monitoring_support,
                                      const char* end_message,
                                      bool all_memory_pools_affected) :
   _monitoring_support(monitoring_support)
-#ifndef SVM
   , _tcs(collection_counters)
+#ifndef SVM
   , _tms(gc_memory_manager,
        G1CollectedHeap::heap()->gc_cause(),
        end_message,

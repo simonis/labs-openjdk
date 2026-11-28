@@ -59,6 +59,7 @@ void elapsedTimer::add_nanoseconds(jlong ns) {
   jlong freq = os::elapsed_frequency() / NANOUNITS;
   _counter += ns * freq;
 }
+#endif // !SVM
 
 void elapsedTimer::start() {
   if (!_active) {
@@ -74,6 +75,7 @@ void elapsedTimer::stop() {
   }
 }
 
+#ifndef SVM
 double elapsedTimer::seconds() const {
  return TimeHelper::counter_to_seconds(_counter);
 }

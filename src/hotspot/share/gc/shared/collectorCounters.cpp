@@ -33,10 +33,14 @@ namespace svm_gc {
 CollectorCounters::CollectorCounters(const char* name, int ordinal) {
 
   if (UsePerfData) {
-#if defined(SVM) && INCLUDE_SHENANDOAHGC
-    Unimplemented();
-#elif defined(SVM)
+#if defined(SVM)
+  #if INCLUDE_SHENANDOAHGC
+    ShenandoahCollectorPerfData *data = ShenandoahPerfData::get()->collector(ordinal);
+  #elif INCLUDE_G1GC
     G1CollectorPerfData *data = G1PerfData::get()->collector(ordinal);
+  #else
+    #error One of INCLUDE_SHENANDOAHGC or INCLUDE_G1GC must be defined
+  #endif // INCLUDE_SHENANDOAHGC
     _invocations = data->invocations();
     _time = data->time();
     _last_entry_time = data->last_entry_time();
@@ -80,7 +84,6 @@ CollectorCounters::~CollectorCounters() {
 #endif // !SVM
 }
 
-#ifndef SVM
 TraceCollectorStats::TraceCollectorStats(CollectorCounters* c) :
     PerfTraceTimedEvent(c->time_counter(), c->invocation_counter()),
     _c(c) {
@@ -89,7 +92,6 @@ TraceCollectorStats::TraceCollectorStats(CollectorCounters* c) :
      _c->last_entry_counter()->set_value(os::elapsed_counter());
   }
 }
-#endif // !SVM
 
 TraceCollectorStats::~TraceCollectorStats() {
   if (UsePerfData) {

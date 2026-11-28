@@ -318,7 +318,7 @@ CollectedHeap::CollectedHeap() :
 
   // NOTE (chaeubl): not needed for G1 because _filler_array_max_size is overwritten in G1CollectedHeap.
   // NOTE (simonis): but needed for Shenandoah
-#if !defined(SVM) || defined(INCLUDE_SHENANDOAHGC)
+#if !defined(SVM) || INCLUDE_SHENANDOAHGC
   const size_t max_len = size_t(arrayOopDesc::max_array_length(T_INT));
   const size_t elements_per_word = HeapWordSize / sizeof(jint);
   _filler_array_max_size = align_object_size(filler_array_hdr_size() +
@@ -329,10 +329,14 @@ CollectedHeap::CollectedHeap() :
   NOT_PRODUCT(_promotion_failure_alot_gc_number = 0;)
 
   if (UsePerfData) {
-#if defined(SVM) && INCLUDE_SHENANDOAHGC
-    Unimplemented();
-#elif defined(SVM)
+#if defined(SVM)
+  #if INCLUDE_SHENANDOAHGC
+    ShenandoahGCCausesPerfData *data = ShenandoahPerfData::get()->causes();
+  #elif INCLUDE_G1GC
     G1GCCausesPerfData *data = G1PerfData::get()->causes();
+  #else
+    #error One of INCLUDE_SHENANDOAHGC or INCLUDE_G1GC must be defined
+  #endif // INCLUDE_SHENANDOAHGC
     _perf_gc_cause = data->cause();
     _perf_gc_cause->set_value(GCCause::to_string(_gc_cause));
     _perf_gc_lastcause = data->last_cause();

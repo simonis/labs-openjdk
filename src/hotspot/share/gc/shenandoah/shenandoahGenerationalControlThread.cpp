@@ -398,9 +398,7 @@ void ShenandoahGenerationalControlThread::service_concurrent_old_cycle(const She
   ShenandoahYoungGeneration* young_generation = _heap->young_generation();
   ShenandoahOldGeneration::State original_state = old_generation->state();
 
-#ifndef SVM
   TraceCollectorStats tcs(_heap->monitoring_support()->concurrent_collection_counters());
-#endif // !SVM
 
   switch (original_state) {
     case ShenandoahOldGeneration::FILLING: {
@@ -546,9 +544,7 @@ void ShenandoahGenerationalControlThread::service_concurrent_cycle(ShenandoahGen
   maybe_set_aging_cycle();
 
   ShenandoahGCSession session(cause, generation);
-#ifndef SVM
   TraceCollectorStats tcs(_heap->monitoring_support()->concurrent_collection_counters());
-#endif // !SVM
 
   assert(!generation->is_old(), "Old GC takes a different control path");
 

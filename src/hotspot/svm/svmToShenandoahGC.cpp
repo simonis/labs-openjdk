@@ -153,7 +153,7 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
     Klass *dynamic_hub_klass, InstanceKlass *filler_object_klass, TypeArrayKlass *filler_array_klass, Klass *string_klass, Klass *system_klass,
     objArrayOop static_object_fields, typeArrayOop static_primitive_fields, oop vm_operation_thread, oop safepoint, oop runtime_code_info_memory,
     int reference_map_compressed_offset_shift, SVMOopMap *thread_locals_reference_map,
-    objArrayOop klasses_assumed_reachable_for_code_unloading, bool perf_data_support, bool closed_type_world,
+    objArrayOop klasses_assumed_reachable_for_code_unloading, oop performance_data, bool closed_type_world,
     bool use_interface_hashing, int interface_hashing_max_id, int dynamic_hub_hashing_interface_mask, int dynamic_hub_hashing_shift_offset,
     char *offsets, int offsets_length,
     queueVmOperationFunc collect_for_allocation_op, queueVmOperationFunc collect_full_op, queueVmOperationFunc collect_degenerated_op, queueVmOperationFunc init_mark_op, queueVmOperationFunc final_mark_op, queueVmOperationFunc init_update_refs_op, queueVmOperationFunc final_update_refs_op, queueVmOperationFunc final_roots_op, queueVmOperationFunc handshake_fallback_op,
@@ -233,6 +233,7 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   SVMIsolateData::_safepoint = safepoint;
   SVMIsolateData::_runtime_code_info_memory = runtime_code_info_memory;
   SVMIsolateData::_klasses_assumed_reachable_for_code_unloading = klasses_assumed_reachable_for_code_unloading;
+  SVMIsolateData::_performance_data = performance_data;
 
   SVMGlobalData::_closed_image_heap_regions = closed_image_heap_regions;
   SVMGlobalData::_open_image_heap_regions = open_image_heap_regions;
@@ -265,7 +266,7 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   SVMGlobalData::_slow_transition_native_to_vm = slow_transition_native_to_vm;
   SVMGlobalData::_clean_runtime_code_cache = clean_runtime_code_cache;
   SVMGlobalData::initialize_offsets(offsets, offsets_length);
-  SVMGlobalData::verify_offsets(perf_data_support);
+  SVMGlobalData::verify_offsets(performance_data != nullptr);
 
   Universe::_dynamic_hub_klass = dynamic_hub_klass;
   Universe::_fillerArrayKlass = filler_array_klass;
@@ -276,7 +277,7 @@ EXPORT_FOR_SVM ShenandoahInitState* svm_gc_create(IsolateThread *isolate_thread,
   guarantee(filler_object_klass->size_helper() == oopDesc::header_size(), "must be");
 
   // The option UsePerfData is a bit special as it depends on a hosted flag.
-  if (!perf_data_support) {
+  if (performance_data == nullptr) {
     // AllowVMInspection was disabled when building the native-image. So, no matter which value is passed for UsePerfData
     // (at image build time or at runtime), we always need to disable UsePerfData.
     if (FLAG_SET_CMDLINE(UsePerfData, false) != JVMFlag::SUCCESS) {

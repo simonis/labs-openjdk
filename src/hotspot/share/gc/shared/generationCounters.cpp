@@ -36,10 +36,14 @@ GenerationCounters::GenerationCounters(const char* name,
                                        size_t min_capacity, size_t max_capacity,
                                        size_t curr_capacity) {
   if (UsePerfData) {
-#if defined(SVM) && INCLUDE_SHENANDOAHGC
-    Unimplemented();
-#elif defined(SVM)
+#if defined(SVM)
+  #if INCLUDE_SHENANDOAHGC
+    ShenandoahGenerationPerfData *data = ShenandoahPerfData::get()->generation(ordinal);
+  #elif INCLUDE_G1GC
     G1GenerationPerfData *data = G1PerfData::get()->generation(ordinal);
+  #else
+    #error One of INCLUDE_SHENANDOAHGC or INCLUDE_G1GC must be defined
+  #endif // INCLUDE_SHENANDOAHGC
     data->min_capacity()->set_value(min_capacity);
     data->max_capacity()->set_value(max_capacity);
 

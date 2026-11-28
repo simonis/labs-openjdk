@@ -37,10 +37,14 @@ HSpaceCounters::HSpaceCounters(SVM_ONLY(int generation_ordinal) NOT_SVM(const ch
                                size_t initial_capacity) {
 
   if (UsePerfData) {
-#if defined(SVM) && INCLUDE_SHENANDOAHGC
-    Unimplemented();
-#elif defined(SVM)
+#if defined(SVM)
+  #if INCLUDE_SHENANDOAHGC
+    ShenandoahSpacePerfData *data = ShenandoahPerfData::get()->generation(generation_ordinal)->space(ordinal);
+  #elif INCLUDE_G1GC
     G1SpacePerfData *data = G1PerfData::get()->generation(generation_ordinal)->space(ordinal);
+  #else
+    #error One of INCLUDE_SHENANDOAHGC or INCLUDE_G1GC must be defined
+  #endif // INCLUDE_SHENANDOAHGC
     data->max_capacity()->set_value((jlong)max_size);
     _capacity = data->capacity();
     _capacity->set_value(initial_capacity);
@@ -93,12 +97,12 @@ void HSpaceCounters::update_used(size_t v) {
   _used->set_value(v);
 }
 
-#ifndef SVM
 void HSpaceCounters::update_all(size_t capacity, size_t used) {
   update_capacity(capacity);
   update_used(used);
 }
 
+#ifndef SVM
 DEBUG_ONLY(
   // for security reasons, we do not allow arbitrary reads from
   // the counters as they may live in shared memory.

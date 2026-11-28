@@ -208,6 +208,52 @@ struct SVMG1PerfDataOffsets {
   int _cpu_time;
 };
 
+struct SVMShenandoahTLABPerfDataOffsets {
+  int _alloc_threads;
+  int _fills;
+  int _max_fills;
+  int _alloc;
+  int _gc_waste;
+  int _max_gc_waste;
+  int _refill_waste;
+  int _max_refill_waste;
+  int _slow_alloc;
+  int _max_slow_alloc;
+};
+
+struct SVMShenandoahGCCausesPerfDataOffsets {
+  int _cause;
+  int _last_cause;
+};
+
+struct SVMShenandoahCollectorPerfDataOffsets {
+  int _invocations;
+  int _last_entry_time;
+  int _last_exit_time;
+  int _time;
+};
+
+struct SVMShenandoahSpacePerfDataOffsets {
+  int _capacity;
+  int _init_capacity;
+  int _max_capacity;
+  int _used;
+};
+
+struct SVMShenandoahGenerationPerfDataOffsets {
+  int _capacity;
+  int _max_capacity;
+  int _min_capacity;
+  int _spaces;
+};
+
+struct SVMShenandoahPerfDataOffsets {
+  int _tlab;
+  int _gc_causes;
+  int _collectors;
+  int _generations;
+};
+
 struct SVMPerfLongOffsets {
   int _value;
 };
@@ -243,6 +289,14 @@ struct SVMOffsets {
   struct SVMG1CpuTimePerfDataOffsets _cpu_time_perf_data;
   struct SVMG1PerfDataOffsets _perf_data;
 #endif // INCLUDE_G1GC
+#if INCLUDE_SHENANDOAHGC
+  struct SVMShenandoahTLABPerfDataOffsets _shenandoah_tlab_perf_data;
+  struct SVMShenandoahGCCausesPerfDataOffsets _shenandoah_gc_causes_perf_data;
+  struct SVMShenandoahCollectorPerfDataOffsets _shenandoah_collector_perf_data;
+  struct SVMShenandoahSpacePerfDataOffsets _shenandoah_space_perf_data;
+  struct SVMShenandoahGenerationPerfDataOffsets _shenandoah_generation_perf_data;
+  struct SVMShenandoahPerfDataOffsets _shenandoah_perf_data;
+#endif // INCLUDE_SHENANDOAHGC
   struct SVMPerfLongOffsets _perf_long;
   struct SVMPerfStringVariableOffsets _perf_string_variable;
 };

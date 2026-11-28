@@ -58,7 +58,6 @@ class GCCause : public AllStatic {
     _g1_periodic_collection,
 
     // GC causes that are unused and only kept to reduce the number of necessary code changes
-    _gc_locker,
     _heap_inspection,
 
     _no_cause_specified,

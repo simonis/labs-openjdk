@@ -299,9 +299,7 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
 
   ShenandoahGCSession session(cause, heap->global_generation());
 
-#ifndef SVM
   TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
-#endif // !SVM
 
   ShenandoahConcurrentGC gc(heap->global_generation(), false);
   if (gc.collect(cause)) {

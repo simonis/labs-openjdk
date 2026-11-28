@@ -62,6 +62,9 @@ const char* GCCause::to_string(GCCause::Cause cause) {
     case _runtime_state_trim_full_gc:
       return "Runtime-State Trim Full GC";
 
+    case _scavenge_alot:
+      return "ScavengeAlot";
+
     case _no_gc:
       return "No GC";
 
@@ -77,8 +80,39 @@ const char* GCCause::to_string(GCCause::Cause cause) {
     case _g1_periodic_collection:
       return "G1 Periodic Collection";
 
+    case _heap_inspection:
+      return "Heap Inspection Initiated GC";
+
+    case _codecache_GC_threshold:
+      return "CodeCache GC Threshold";
+
+    case _codecache_GC_aggressive:
+      return "CodeCache GC Aggressive";
+
     case _allocation_failure:
       return "Allocation Failure";
+
+    case _full_gc_alot:
+      return "FullGCAlot";
+
+    case _metadata_GC_clear_soft_refs:
+      return "Metadata GC Clear Soft References";
+
+    case _shenandoah_allocation_failure_evac:
+      return "Allocation Failure During Evacuation";
+
+    case _shenandoah_stop_vm:
+      return "Stopping VM";
+
+    // Missing in JDK 25, the string is the one from later JDK versions.
+    case _shenandoah_humongous_allocation_failure:
+      return "Humongous Allocation Failure";
+
+    case _shenandoah_concurrent_gc:
+      return "Concurrent GC";
+
+    case _shenandoah_upgrade_to_full_gc:
+      return "Upgrade To Full GC";
 
     case _last_gc_cause:
           return "ILLEGAL VALUE - last gc cause - ILLEGAL VALUE";

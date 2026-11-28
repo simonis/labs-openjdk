@@ -220,6 +220,7 @@ class PerfLong : public PerfData {
  */
 class PerfLongVariant : public PerfLong {
   public:
+    inline void inc() { (*valuep())++; }
     inline void inc(jlong val) { (*valuep()) += val; }
     inline void dec(jlong val) { inc(-val); }
 };
@@ -295,6 +296,16 @@ class PerfTraceTime : public StackObj {
     PerfLongCounter* _timerp;
 
   public:
+    inline PerfTraceTime(PerfLongCounter* timerp) : _timerp(timerp) {
+      if (!UsePerfData || timerp == nullptr) { return; }
+      _t.start();
+    }
+
+    ~PerfTraceTime() {
+      if (!UsePerfData || !_t.is_active()) { return; }
+      _t.stop();
+      _timerp->inc(_t.ticks());
+    }
 };
 
 /* The PerfTraceTimedEvent class is responsible for counting the
@@ -322,6 +333,10 @@ class PerfTraceTimedEvent : public PerfTraceTime {
     PerfLongCounter* _eventp;
 
   public:
+    inline PerfTraceTimedEvent(PerfLongCounter* timerp, PerfLongCounter* eventp): PerfTraceTime(timerp), _eventp(eventp) {
+      if (!UsePerfData || timerp == nullptr) { return; }
+      _eventp->inc();
+    }
 
 };
 
@@ -407,6 +422,62 @@ class G1PerfData {
   G1GenerationPerfData* generation(int ordinal);
   G1AgeTablePerfData* age_table();
   G1CpuTimePerfData* cpu_time();
+};
+
+// The Shenandoah performance data has the same layout as the counters that
+// ShenandoahMonitoringSupport, CollectedHeap and ThreadLocalAllocStats create on HotSpot.
+class ShenandoahTLABPerfData {
+ public:
+  PerfLongVariable* alloc_threads();
+  PerfLongVariable* fills();
+  PerfLongVariable* max_fills();
+  PerfLongVariable* alloc();
+  PerfLongVariable* gc_waste();
+  PerfLongVariable* max_gc_waste();
+  PerfLongVariable* refill_waste();
+  PerfLongVariable* max_refill_waste();
+  PerfLongVariable* slow_alloc();
+  PerfLongVariable* max_slow_alloc();
+};
+
+class ShenandoahGCCausesPerfData {
+ public:
+  PerfStringVariable* cause();
+  PerfStringVariable* last_cause();
+};
+
+class ShenandoahCollectorPerfData {
+ public:
+  PerfLongCounter* invocations();
+  PerfLongVariable* last_entry_time();
+  PerfLongVariable* last_exit_time();
+  PerfLongCounter* time();
+};
+
+class ShenandoahSpacePerfData {
+ public:
+  PerfLongVariable* capacity();
+  PerfLongVariable* init_capacity();
+  PerfLongVariable* max_capacity();
+  PerfLongVariable* used();
+};
+
+class ShenandoahGenerationPerfData {
+ public:
+  PerfLongVariable* capacity();
+  PerfLongVariable* max_capacity();
+  PerfLongVariable* min_capacity();
+  ShenandoahSpacePerfData* space(int ordinal);
+};
+
+class ShenandoahPerfData {
+ public:
+  static ShenandoahPerfData* get() { return (ShenandoahPerfData*)SVMIsolateData::_performance_data; };
+
+  ShenandoahTLABPerfData* tlab();
+  ShenandoahGCCausesPerfData* causes();
+  ShenandoahCollectorPerfData* collector(int ordinal);
+  ShenandoahGenerationPerfData* generation(int ordinal);
 };
 
 

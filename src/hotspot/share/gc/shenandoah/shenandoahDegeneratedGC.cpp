@@ -67,9 +67,7 @@ bool ShenandoahDegenGC::collect(GCCause::Cause cause) {
 }
 
 void ShenandoahDegenGC::vmop_degenerated() {
-#ifndef SVM
   TraceCollectorStats tcs(ShenandoahHeap::heap()->monitoring_support()->full_stw_collection_counters());
-#endif // !SVM
   ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::degen_gc_gross);
   VM_ShenandoahDegeneratedGC degenerated_gc(this);
   VMThread::execute(&degenerated_gc);

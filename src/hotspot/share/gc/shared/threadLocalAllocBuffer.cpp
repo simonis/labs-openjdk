@@ -362,10 +362,14 @@ void ThreadLocalAllocStats::initialize() {
   _allocating_threads_avg.sample(1); // One allocating thread at startup
 
   if (UsePerfData) {
-#if defined(SVM) && INCLUDE_SHENANDOAHGC
-    Unimplemented();
-#elif defined(SVM)
+#if defined(SVM)
+  #if INCLUDE_SHENANDOAHGC
+    ShenandoahTLABPerfData *data = ShenandoahPerfData::get()->tlab();
+  #elif INCLUDE_G1GC
     G1TLABPerfData *data = G1PerfData::get()->tlab();
+  #else
+    #error One of INCLUDE_SHENANDOAHGC or INCLUDE_G1GC must be defined
+  #endif // INCLUDE_SHENANDOAHGC
     _perf_allocating_threads      = data->alloc_threads();
     _perf_total_refills           = data->fills();
     _perf_max_refills             = data->max_fills();

@@ -232,8 +232,8 @@ public:
 // Scope object for java.lang.management support.
 class G1MonitoringScope : public StackObj {
   G1MonitoringSupport* _monitoring_support;
-#ifndef SVM
   TraceCollectorStats _tcs;
+#ifndef SVM
   TraceMemoryManagerStats _tms;
 #endif // !SVM
 protected:

@@ -241,5 +241,128 @@ G1CpuTimePerfData* G1PerfData::cpu_time() {
 }
 #endif // INCLUDE_G1GC
 
+#if INCLUDE_SHENANDOAHGC
+// ShenandoahTLABPerfData
+PerfLongVariable* ShenandoahTLABPerfData::alloc_threads() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_tlab_perf_data._alloc_threads);
+}
+
+PerfLongVariable* ShenandoahTLABPerfData::fills() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_tlab_perf_data._fills);
+}
+
+PerfLongVariable* ShenandoahTLABPerfData::max_fills() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_tlab_perf_data._max_fills);
+}
+
+PerfLongVariable* ShenandoahTLABPerfData::alloc() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_tlab_perf_data._alloc);
+}
+
+PerfLongVariable* ShenandoahTLABPerfData::gc_waste() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_tlab_perf_data._gc_waste);
+}
+
+PerfLongVariable* ShenandoahTLABPerfData::max_gc_waste() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_tlab_perf_data._max_gc_waste);
+}
+
+PerfLongVariable* ShenandoahTLABPerfData::refill_waste() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_tlab_perf_data._refill_waste);
+}
+
+PerfLongVariable* ShenandoahTLABPerfData::max_refill_waste() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_tlab_perf_data._max_refill_waste);
+}
+
+PerfLongVariable* ShenandoahTLABPerfData::slow_alloc() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_tlab_perf_data._slow_alloc);
+}
+
+PerfLongVariable* ShenandoahTLABPerfData::max_slow_alloc() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_tlab_perf_data._max_slow_alloc);
+}
+
+// ShenandoahGCCausesPerfData
+PerfStringVariable* ShenandoahGCCausesPerfData::cause() {
+  return (PerfStringVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_gc_causes_perf_data._cause);
+}
+
+PerfStringVariable* ShenandoahGCCausesPerfData::last_cause() {
+  return (PerfStringVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_gc_causes_perf_data._last_cause);
+}
+
+// ShenandoahCollectorPerfData
+PerfLongCounter* ShenandoahCollectorPerfData::invocations() {
+  return (PerfLongCounter*) load_oop(this, SVMGlobalData::_offsets._shenandoah_collector_perf_data._invocations);
+}
+
+PerfLongVariable* ShenandoahCollectorPerfData::last_entry_time() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_collector_perf_data._last_entry_time);
+}
+
+PerfLongVariable* ShenandoahCollectorPerfData::last_exit_time() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_collector_perf_data._last_exit_time);
+}
+
+PerfLongCounter* ShenandoahCollectorPerfData::time() {
+  return (PerfLongCounter*) load_oop(this, SVMGlobalData::_offsets._shenandoah_collector_perf_data._time);
+}
+
+// ShenandoahSpacePerfData
+PerfLongVariable* ShenandoahSpacePerfData::capacity() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_space_perf_data._capacity);
+}
+
+PerfLongVariable* ShenandoahSpacePerfData::init_capacity() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_space_perf_data._init_capacity);
+}
+
+PerfLongVariable* ShenandoahSpacePerfData::max_capacity() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_space_perf_data._max_capacity);
+}
+
+PerfLongVariable* ShenandoahSpacePerfData::used() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_space_perf_data._used);
+}
+
+// ShenandoahGenerationPerfData
+PerfLongVariable* ShenandoahGenerationPerfData::capacity() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_generation_perf_data._capacity);
+}
+
+PerfLongVariable* ShenandoahGenerationPerfData::max_capacity() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_generation_perf_data._max_capacity);
+}
+
+PerfLongVariable* ShenandoahGenerationPerfData::min_capacity() {
+  return (PerfLongVariable*) load_oop(this, SVMGlobalData::_offsets._shenandoah_generation_perf_data._min_capacity);
+}
+
+ShenandoahSpacePerfData* ShenandoahGenerationPerfData::space(int ordinal) {
+  objArrayOop spaces = (objArrayOop)load_oop(this, SVMGlobalData::_offsets._shenandoah_generation_perf_data._spaces);
+  return (ShenandoahSpacePerfData*) spaces->obj_at_raw(ordinal);
+}
+
+// ShenandoahPerfData
+ShenandoahTLABPerfData* ShenandoahPerfData::tlab() {
+  return (ShenandoahTLABPerfData*) load_oop(this, SVMGlobalData::_offsets._shenandoah_perf_data._tlab);
+}
+
+ShenandoahGCCausesPerfData* ShenandoahPerfData::causes() {
+  return (ShenandoahGCCausesPerfData*) load_oop(this, SVMGlobalData::_offsets._shenandoah_perf_data._gc_causes);
+}
+
+ShenandoahCollectorPerfData* ShenandoahPerfData::collector(int ordinal) {
+  objArrayOop collectors = (objArrayOop)load_oop(this, SVMGlobalData::_offsets._shenandoah_perf_data._collectors);
+  return (ShenandoahCollectorPerfData*) collectors->obj_at_raw(ordinal);
+}
+
+ShenandoahGenerationPerfData* ShenandoahPerfData::generation(int ordinal) {
+  objArrayOop generations = (objArrayOop)load_oop(this, SVMGlobalData::_offsets._shenandoah_perf_data._generations);
+  return (ShenandoahGenerationPerfData*) generations->obj_at_raw(ordinal);
+}
+#endif // INCLUDE_SHENANDOAHGC
+
 } // namespace svm_gc
 

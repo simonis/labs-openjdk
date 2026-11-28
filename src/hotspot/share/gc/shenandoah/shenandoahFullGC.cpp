@@ -88,9 +88,7 @@ bool ShenandoahFullGC::collect(GCCause::Cause cause) {
 
 void ShenandoahFullGC::vmop_entry_full(GCCause::Cause cause) {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-#ifndef SVM
   TraceCollectorStats tcs(heap->monitoring_support()->full_stw_collection_counters());
-#endif // !SVM
   ShenandoahTimingsTracker timing(ShenandoahPhaseTimings::full_gc_gross);
 
   heap->try_inject_alloc_failure();

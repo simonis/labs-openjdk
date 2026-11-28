@@ -178,11 +178,43 @@ void SVMGlobalData::verify_offsets(bool use_perf_data) {
 
   if (use_perf_data) {
 #if INCLUDE_SHENANDOAHGC
-    // 'use_perf_data' is set depending on the value of '--enable-monitoring=jvmstat`/'-H:EnableMonitoringFeatures=jvmstat'
-    // in com.oracle.svm.core.VMInspectionOptions, so we need an extra check for 'UsePerfData' here.
-    if (UsePerfData) {
-      Unimplemented();
-    }
+    assert(SVMGlobalData::_offsets._shenandoah_tlab_perf_data._alloc_threads > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_tlab_perf_data._fills > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_tlab_perf_data._max_fills > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_tlab_perf_data._alloc > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_tlab_perf_data._gc_waste > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_tlab_perf_data._max_gc_waste > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_tlab_perf_data._refill_waste > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_tlab_perf_data._max_refill_waste > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_tlab_perf_data._slow_alloc > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_tlab_perf_data._max_slow_alloc > oopDesc::klass_offset_in_bytes(), "must be");
+
+    assert(SVMGlobalData::_offsets._shenandoah_gc_causes_perf_data._cause > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_gc_causes_perf_data._last_cause > oopDesc::klass_offset_in_bytes(), "must be");
+
+    assert(SVMGlobalData::_offsets._shenandoah_collector_perf_data._invocations > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_collector_perf_data._last_entry_time > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_collector_perf_data._last_exit_time > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_collector_perf_data._time > oopDesc::klass_offset_in_bytes(), "must be");
+
+    assert(SVMGlobalData::_offsets._shenandoah_space_perf_data._capacity > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_space_perf_data._init_capacity > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_space_perf_data._max_capacity > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_space_perf_data._used > oopDesc::klass_offset_in_bytes(), "must be");
+
+    assert(SVMGlobalData::_offsets._shenandoah_generation_perf_data._capacity > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_generation_perf_data._max_capacity > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_generation_perf_data._min_capacity > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_generation_perf_data._spaces > oopDesc::klass_offset_in_bytes(), "must be");
+
+    assert(SVMGlobalData::_offsets._shenandoah_perf_data._tlab > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_perf_data._gc_causes > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_perf_data._collectors > oopDesc::klass_offset_in_bytes(), "must be");
+    assert(SVMGlobalData::_offsets._shenandoah_perf_data._generations > oopDesc::klass_offset_in_bytes(), "must be");
+
+    assert(SVMGlobalData::_offsets._perf_long._value > oopDesc::klass_offset_in_bytes(), "must be");
+
+    assert(SVMGlobalData::_offsets._perf_string_variable._null_terminated_value > oopDesc::klass_offset_in_bytes(), "must be");
 #else
     assert(SVMGlobalData::_offsets._tlab_perf_data._alloc_threads > oopDesc::klass_offset_in_bytes(), "must be");
     assert(SVMGlobalData::_offsets._tlab_perf_data._fills > oopDesc::klass_offset_in_bytes(), "must be");

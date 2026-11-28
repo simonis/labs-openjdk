@@ -415,7 +415,7 @@ bool ShenandoahOldGeneration::entry_coalesce_and_fill() {
   static const char* msg = "Coalescing and filling (Old)";
   ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_coalesce_and_fill);
 
-  NOT_SVM(TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());)
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   EventMark em("%s", msg);
   ShenandoahWorkerScope scope(heap->workers(),
                               ShenandoahWorkerPolicy::calc_workers_for_conc_marking(),

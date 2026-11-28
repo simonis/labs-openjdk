@@ -503,9 +503,7 @@ jint ShenandoahHeap::initialize() {
     satbqs.set_buffer_enqueue_threshold_percentage(60); // G1SATBBufferEnqueueingThresholdPercent
   }
 
-#ifndef SVM
   _monitoring_support = new ShenandoahMonitoringSupport(this);
-#endif
   _phase_timings = new ShenandoahPhaseTimings(max_workers());
 #ifndef SVM
   ShenandoahCodeRoots::initialize();
@@ -931,22 +929,16 @@ bool ShenandoahHeap::check_soft_max_changed() {
 void ShenandoahHeap::notify_heap_changed() {
   // Update monitoring counters when we took a new region. This amortizes the
   // update costs on slow path.
-#ifndef SVM
   monitoring_support()->notify_heap_changed();
-#endif // !SVM
   _heap_changed.try_set();
 }
 
 void ShenandoahHeap::set_forced_counters_update(bool value) {
-#ifndef SVM
   monitoring_support()->set_forced_counters_update(value);
-#endif // !SVM
 }
 
 void ShenandoahHeap::handle_force_counters_update() {
-#ifndef SVM
   monitoring_support()->handle_force_counters_update();
-#endif // !SVM
 }
 
 HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) {

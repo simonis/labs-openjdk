@@ -56,13 +56,11 @@ class CollectorCounters: public CHeapObj<mtGC> {
 
     ~CollectorCounters();
 
-#ifndef SVM
     inline PerfCounter* invocation_counter() const  { return _invocations; }
 
     inline PerfCounter* time_counter() const        { return _time; }
 
     inline PerfVariable* last_entry_counter() const { return _last_entry_time; }
-#endif // !SVM
 
     inline PerfVariable* last_exit_counter() const  { return _last_exit_time; }
 
